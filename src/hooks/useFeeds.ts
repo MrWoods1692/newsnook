@@ -14,6 +14,7 @@ import {
   type SourcePagingState,
 } from '../lib/feedPagination'
 import { fetchAbsoluteText, fetchSourceText } from '../lib/http'
+import { detectNextPageUrl } from '../features/catalogEngine/pagination'
 import { describeNonFeedPayload } from '../lib/feedPayload'
 import {
   enrichJazzyearDates,
@@ -708,6 +709,48 @@ export function useFeeds(
             }
 
             if (strategy === 'upstream-offset') {
+              // next-link: use discovered URL from previous page
+              if (source.frameworkHint?.paginationPattern.kind === 'next-link') {
+                const nextUrl = pagingRef.current[id]?.nextUrl
+                if (!nextUrl) {
+                  const headPayload = await fetchSourceText(source, controller.signal)
+                  if (controller.signal.aborted) return
+                  const headArticles = await parseSourceArticles(source, headPayload, controller.signal)
+                  applyHeadPage(id, source, headPayload, headArticles)
+                  const discoveredNext = detectNextPageUrl(headPayload, source.url)
+                  updatePaging(id, {
+                    phase: discoveredNext ? 'ready' : 'exhausted',
+                    page: 0,
+                    nextUrl: discoveredNext,
+                  })
+                  return
+                }
+
+                const payload = await fetchSourceText(source, controller.signal, { url: nextUrl })
+                if (controller.signal.aborted) return
+                const parsed = await parseSourceArticles(source, payload, controller.signal)
+                const discoveredNext = detectNextPageUrl(payload, nextUrl)
+                const currentPage = pagingRef.current[id]?.page ?? 0
+                updatePaging(id, {
+                  phase: discoveredNext && parsed.length ? 'ready' : 'exhausted',
+                  page: currentPage + 1,
+                  nextUrl: discoveredNext,
+                })
+                const existing = bucketsRef.current.get(id) ?? []
+                if (!parsed.length) {
+                  saveCachedArticles(id, existing, cacheMetaForItems(id, pagingRef.current[id], existing))
+                  return
+                }
+                const historical = placeUndatedPageAfterExisting(existing, parsed)
+                const { merged, added } = mergeOlderPage(existing, historical)
+                if (added > 0) {
+                  commitBucket(id, merged)
+                  anyAdded = true
+                  markBucketReady(id, merged)
+                }
+                return
+              }
+
               const maxPages = maxOffsetPages(source)
               // Skip duplicate or fully filtered offset pages in one interaction.
               for (let attempt = 0; attempt < 3; attempt += 1) {
