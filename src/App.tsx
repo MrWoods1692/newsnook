@@ -896,6 +896,7 @@ export default function App() {
           onLoadMore={() => void loadMore([focusSource.id])}
           onOpen={openArticle}
           onBack={closeSourceFeed}
+          searchTemplate={focusSource.frameworkHint?.searchTemplate}
         />
       )
     }
