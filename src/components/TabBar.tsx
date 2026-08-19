@@ -3,7 +3,7 @@ import { Bookmark, Newspaper } from 'lucide-react'
 
 const TODAY_DOUBLE_TAP_MS = 360
 
-export type TabKey = 'today' | 'me'
+export type TabKey = 'today' | 'sites' | 'me'
 
 const TABS: { key: TabKey; label: string; Icon: typeof Newspaper }[] = [
   { key: 'today', label: '速闻', Icon: Newspaper },

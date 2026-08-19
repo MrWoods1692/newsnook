@@ -56,6 +56,8 @@ interface Props {
     items: PresetSwitcherItem[]
     onSelect: (id: string) => void
     onManage: () => void
+    onSites?: () => void
+    siteCount?: number
   }
   translationPrefs?: TranslationPrefs
   /** 自定义源，用于刷新进度显示名称 */
@@ -70,6 +72,8 @@ interface Props {
   pullRefreshSeq?: number
   /** 站内搜索模板（仅 web-catalog 源有 frameworkHint.searchTemplate 时传入） */
   searchTemplate?: string
+  /** 框架站点分类列表（frameworkHint.categories） */
+  frameworkCategories?: { title: string; url: string }[]
 }
 
 /** 邻页预览：排版与正式列表对齐，并恢复该分类上次滚动位置，避免滑入时先顶后跳 */
@@ -193,6 +197,7 @@ export const FeedScreen = memo(function FeedScreen({
   onBrandTap,
   pullRefreshSeq = 0,
   searchTemplate,
+  frameworkCategories,
 }: Props) {
   const isDesktop = useIsDesktop()
   const reduced = useReducedMotion()
@@ -247,6 +252,61 @@ export const FeedScreen = memo(function FeedScreen({
     setSearchResults(null)
     setSearchError(null)
   }, [])
+
+  const [activeFwCat, setActiveFwCat] = useState<number | null>(null)
+  const [fwCatArticles, setFwCatArticles] = useState<Article[] | null>(null)
+  const [fwCatLoading, setFwCatLoading] = useState(false)
+  const [fwCatPage, setFwCatPage] = useState(0)
+  const [fwCatExhausted, setFwCatExhausted] = useState(false)
+
+  const selectFwCategory = useCallback(async (idx: number | null) => {
+    setActiveFwCat(idx)
+    setFwCatPage(0)
+    setFwCatExhausted(false)
+    if (idx === null || !frameworkCategories?.[idx]) {
+      setFwCatArticles(null)
+      return
+    }
+    const catUrl = frameworkCategories[idx].url
+    setFwCatLoading(true)
+    try {
+      const html = await fetchAbsoluteText(catUrl)
+      const results = catalogHtmlToArticles(
+        { id: 'fw_cat', name: '', label: '', group: 'custom', kind: 'web-catalog', url: catUrl, enabled: true },
+        html, Date.now(),
+      )
+      setFwCatArticles(results)
+    } catch {
+      setFwCatArticles([])
+    } finally {
+      setFwCatLoading(false)
+    }
+  }, [frameworkCategories])
+
+  const loadMoreFwCat = useCallback(async () => {
+    if (fwCatLoading || fwCatExhausted || activeFwCat === null || !frameworkCategories?.[activeFwCat]) return
+    const catUrl = frameworkCategories[activeFwCat].url
+    const nextPage = fwCatPage + 1
+    const pageUrl = catUrl.replace(/\.html$/i, '') + `/page/${nextPage + 1}.html`
+    setFwCatLoading(true)
+    try {
+      const html = await fetchAbsoluteText(pageUrl)
+      const results = catalogHtmlToArticles(
+        { id: 'fw_cat', name: '', label: '', group: 'custom', kind: 'web-catalog', url: pageUrl, enabled: true },
+        html, Date.now(),
+      )
+      if (!results.length) {
+        setFwCatExhausted(true)
+      } else {
+        setFwCatArticles((prev) => [...(prev ?? []), ...results])
+        setFwCatPage(nextPage)
+      }
+    } catch {
+      setFwCatExhausted(true)
+    } finally {
+      setFwCatLoading(false)
+    }
+  }, [activeFwCat, frameworkCategories, fwCatPage, fwCatLoading, fwCatExhausted])
 
   const loadingMoreRef = useRef(loadingMore)
   loadingMoreRef.current = loadingMore
@@ -487,6 +547,36 @@ export const FeedScreen = memo(function FeedScreen({
         <p className="page-x lg:px-6 xl:px-8 2xl:px-10 py-2 text-[12px] text-red-400">{searchError}</p>
       )}
 
+      {frameworkCategories && frameworkCategories.length > 0 && (
+        <div className="page-x lg:px-6 xl:px-8 2xl:px-10 flex gap-1.5 overflow-x-auto py-2 scrollbar-none">
+          <button
+            type="button"
+            onClick={() => selectFwCategory(null)}
+            className={`shrink-0 rounded-full px-3 py-1 text-[12px] transition-colors ${
+              activeFwCat === null
+                ? 'bg-cinnabar text-white'
+                : 'bg-paper/10 text-paper-muted hover:bg-paper/20'
+            }`}
+          >
+            全部
+          </button>
+          {frameworkCategories.map((cat, idx) => (
+            <button
+              key={cat.url}
+              type="button"
+              onClick={() => selectFwCategory(idx)}
+              className={`shrink-0 rounded-full px-3 py-1 text-[12px] transition-colors ${
+                activeFwCat === idx
+                  ? 'bg-cinnabar text-white'
+                  : 'bg-paper/10 text-paper-muted hover:bg-paper/20'
+              }`}
+            >
+              {cat.title}
+            </button>
+          ))}
+        </div>
+      )}
+
       {searchResults !== null ? (
         <div className="page-x lg:px-6 xl:px-8 2xl:px-10">
           <div className="flex items-center justify-between py-2">
@@ -513,6 +603,37 @@ export const FeedScreen = memo(function FeedScreen({
               />
             ))}
           </ul>
+        </div>
+      ) : fwCatArticles !== null ? (
+        <div className="page-x lg:px-6 xl:px-8 2xl:px-10">
+          {fwCatLoading && !fwCatArticles.length && <FeedSkeleton showLead={false} />}
+          <ul className="divide-y divide-haze">
+            {fwCatArticles.map((article) => (
+              <ArticleRow
+                key={article.id}
+                article={article}
+                read={readIds.has(article.id)}
+                saved={laterIds.has(article.id)}
+                onOpen={onOpen}
+                variant="row"
+              />
+            ))}
+          </ul>
+          {!fwCatExhausted && fwCatArticles.length > 0 && (
+            <div className="flex justify-center py-6">
+              <button
+                type="button"
+                onClick={loadMoreFwCat}
+                disabled={fwCatLoading}
+                className="rounded-xl border border-haze bg-paper/5 px-4 py-2 font-mono text-[11px] text-paper-muted transition-colors hover:border-cinnabar/60 hover:text-paper disabled:opacity-40"
+              >
+                {fwCatLoading ? <Loader2 size={13} className="animate-spin" /> : '加载更多'}
+              </button>
+            </div>
+          )}
+          {fwCatExhausted && fwCatArticles.length > 0 && (
+            <p className="py-4 text-center font-mono text-[10px] text-paper-faint">没有更多了</p>
+          )}
         </div>
       ) : (
         <>
@@ -703,6 +824,8 @@ export const FeedScreen = memo(function FeedScreen({
                   items={presetSwitcher.items}
                   onSelect={presetSwitcher.onSelect}
                   onManage={presetSwitcher.onManage}
+                  onSites={presetSwitcher.onSites}
+                  siteCount={presetSwitcher.siteCount}
                 />
               </div>
             )}

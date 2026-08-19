@@ -620,8 +620,11 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
       const requestContext = sourcePage || Object.keys(effectiveHeaders).length > 0
         ? { sourcePage, headers: effectiveHeaders }
         : undefined
-      const bypass = needsMediaHotlinkBypass(url) || Boolean(isHls && sourcePage && !Capacitor.isNativePlatform())
-      // 防盗链 CDN：即使系统原生支持 HLS，也走 hls.js + 自定义 loader，避免 WebView 带 localhost Origin 被 403
+      const bypass = needsMediaHotlinkBypass(url)
+        || Boolean(isHls && sourcePage && !Capacitor.isNativePlatform())
+        || Boolean(isHls && progressiveBridgeAttempted && Capacitor.isNativePlatform())
+      // Android 原生 MediaPlayer 的 HLS 分片请求不走 WebView 拦截，
+      // 无法注入自定义 headers，必须走 hls.js + XHR 由 WebViewClient 补齐
       const useNativeHls = !bypass && Boolean(video.canPlayType('application/vnd.apple.mpegurl'))
       const HlsClass =
         isHls && !useNativeHls ? (await import('hls.js')).default : null

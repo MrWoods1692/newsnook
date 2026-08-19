@@ -12,7 +12,7 @@
 2. **分类发现**：从导航栏提取站点分类列表，用户选择后每个分类成为独立自定义源
 3. **站内搜索**：在单源视图中提供该站点的搜索入口
 
-解决已知问题：MacCMS（kanav.ad、91porn.com 等）和类似 PHP CMS 的 web-catalog 源无法上拉加载更多。
+解决已知问题：MacCMS 和类似 PHP CMS 的 web-catalog 源无法上拉加载更多。
 
 ## 2. 约束
 
@@ -251,12 +251,12 @@ export function detectGenericNextLink(html: string, pageUrl: string): FrameworkH
 ├ 支持站内搜索 ✓
 └ 发现 6 个分类：
 
-  ☑ 中文字幕    /vod/type/id/1.html
-  ☑ 日韩有码    /vod/type/id/2.html
-  ☐ 日韩无码    /vod/type/id/3.html
-  ☑ 国产AV     /vod/type/id/4.html
-  ☐ 流出自拍    /vod/type/id/22.html
-  ☐ 动漫番剧    /vod/type/id/20.html
+  ☑ 最新资讯    /vod/type/id/1.html
+  ☑ 影视剧集    /vod/type/id/2.html
+  ☐ 综艺节目    /vod/type/id/3.html
+  ☑ 纪录片      /vod/type/id/4.html
+  ☐ 动画专区    /vod/type/id/22.html
+  ☐ 短视频      /vod/type/id/20.html
 
   [全选] [添加选中分类]
 ```
@@ -275,7 +275,7 @@ export function detectGenericNextLink(html: string, pageUrl: string): FrameworkH
 
 ## 10. 成功标准
 
-1. MacCMS 站点（kanav.ad/index.php）添加后可上拉加载更多页
+1. MacCMS 站点添加后可上拉加载更多页
 2. 探测到的分类列表可选择订阅，每个分类独立翻页
 3. 支持搜索的源在单源视图中可站内搜索
 4. WordPress HTML 页面可翻页（不依赖 REST API）

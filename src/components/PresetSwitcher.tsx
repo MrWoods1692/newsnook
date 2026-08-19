@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Check, ChevronDown, LayoutTemplate, Settings2 } from 'lucide-react'
+import { Check, ChevronDown, Globe, LayoutTemplate, Settings2 } from 'lucide-react'
 
 export interface PresetSwitcherItem {
   id: string
@@ -16,6 +16,10 @@ interface Props {
   items: PresetSwitcherItem[]
   onSelect: (id: string) => void
   onManage: () => void
+  /** 有已适配站点时传入，点击后进入站点浏览 */
+  onSites?: () => void
+  /** 已适配站点数量 */
+  siteCount?: number
   variant?: 'pill' | 'card'
 }
 
@@ -30,6 +34,8 @@ export function PresetSwitcher({
   items,
   onSelect,
   onManage,
+  onSites,
+  siteCount = 0,
   variant = 'pill',
 }: Props) {
   const [open, setOpen] = useState(false)
@@ -163,6 +169,40 @@ export function PresetSwitcher({
                     />
                   ))}
                 </ul>
+              </section>
+            )}
+
+            {onSites && siteCount > 0 && (
+              <section>
+                <div className="mb-2 flex items-center gap-2">
+                  <span className="font-mono text-[10px] tracking-[0.2em] uppercase text-paper-faint">
+                    站点浏览
+                  </span>
+                  <span className="h-px flex-1 bg-haze/60" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false)
+                    onSites()
+                  }}
+                  className="group flex w-full items-center gap-3.5 rounded-xl border border-haze/80 bg-ink/50 p-3 text-left transition-all duration-200 hover:border-cinnabar/40 hover:bg-ink-raised"
+                >
+                  <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink-raised border border-haze text-paper-muted group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
+                    <Globe size={15} strokeWidth={1.6} />
+                  </div>
+                  <span className="min-w-0 flex-1">
+                    <span className="truncate font-display text-[15px] font-semibold text-paper group-hover:text-paper">
+                      已适配站点
+                    </span>
+                    <span className="mt-0.5 block text-[12px] text-paper-faint group-hover:text-paper-muted transition-colors">
+                      {siteCount} 个站点可浏览
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-all">
+                    进入
+                  </span>
+                </button>
               </section>
             )}
           </div>

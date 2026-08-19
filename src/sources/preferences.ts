@@ -225,7 +225,7 @@ export function normalizePreferences(raw: unknown): Preferences {
           ? (item.group as SourceGroup)
           : 'custom'
 
-      customSources.push({
+      const source: NewsSource = {
         id: rawId,
         name: rawName,
         label: rawLabel || rawName.slice(0, 4),
@@ -236,7 +236,11 @@ export function normalizePreferences(raw: unknown): Preferences {
         enabled: typeof item.enabled === 'boolean' ? item.enabled : true,
         isCustom: true,
         createdAt: typeof item.createdAt === 'number' ? item.createdAt : Date.now(),
-      })
+      }
+      if (item.frameworkHint && typeof item.frameworkHint === 'object') {
+        source.frameworkHint = item.frameworkHint
+      }
+      customSources.push(source)
     })
   }
 

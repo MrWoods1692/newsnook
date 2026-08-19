@@ -58,9 +58,9 @@ console.log('Testing MacCMS detection...')
 const maccmsHtml = `<html><head><title>Test</title></head><body>
 <script>var maccms={"path":"","mid":"","url":"example.com"};</script>
 <ul>
-<li><a href="/index.php/vod/type/id/1.html">中文字幕</a></li>
-<li><a href="/index.php/vod/type/id/2.html">日韩有码</a></li>
-<li><a href="/index.php/vod/type/id/4.html">国产</a></li>
+<li><a href="/index.php/vod/type/id/1.html">最新资讯</a></li>
+<li><a href="/index.php/vod/type/id/2.html">影视剧集</a></li>
+<li><a href="/index.php/vod/type/id/4.html">综艺节目</a></li>
 </ul>
 </body></html>`
 

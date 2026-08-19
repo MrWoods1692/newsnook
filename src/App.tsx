@@ -32,6 +32,7 @@ import { THEME_MODES, THEME_SCHEMES, schemeSeedColors } from './lib/theme'
 import { ChannelsScreen } from './screens/ChannelsScreen'
 import { FeedScreen } from './screens/FeedScreen'
 import { MeScreen } from './screens/MeScreen'
+import { SiteScreen } from './screens/SiteScreen'
 import { AboutScreen } from './screens/settings/AboutScreen'
 import { ChangelogScreen } from './screens/settings/ChangelogScreen'
 import { OpenSourceScreen } from './screens/settings/OpenSourceScreen'
@@ -545,12 +546,19 @@ export default function App() {
     ]
   }, [presets.builtins, presets.state])
 
+  const frameworkSiteCount = useMemo(
+    () => (prefs.customSources ?? []).filter((s) => s.frameworkHint && s.kind === 'web-catalog').length,
+    [prefs.customSources],
+  )
+
   const presetSwitcherConfig = useMemo(() => ({
     activeName: presets.activePreset?.name ?? '场景预设',
     items: presetSwitcherItems,
     onSelect: (id: string) => presets.applyPreset(id),
     onManage: () => setSettingsRoute({ name: 'presets' }),
-  }), [presets, presetSwitcherItems])
+    onSites: frameworkSiteCount > 0 ? () => setTab('sites') : undefined,
+    siteCount: frameworkSiteCount,
+  }), [presets, presetSwitcherItems, frameworkSiteCount])
 
   const cachedHistory = useMemo(
     () =>
@@ -897,6 +905,7 @@ export default function App() {
           onOpen={openArticle}
           onBack={closeSourceFeed}
           searchTemplate={focusSource.frameworkHint?.searchTemplate}
+          frameworkCategories={focusSource.frameworkHint?.categories}
         />
       )
     }
@@ -931,6 +940,20 @@ export default function App() {
           onOpenProxySettings={() => setSettingsRoute({ name: 'proxy' })}
           onOpenStorageSettings={() => setSettingsRoute({ name: 'storage' })}
           onOpenAbout={() => setSettingsRoute({ name: 'about' })}
+        />
+      )
+    }
+
+    if (tab === 'sites') {
+      const frameworkSites = (prefs.customSources ?? [])
+        .filter((s) => s.frameworkHint && s.kind === 'web-catalog')
+        .map((s) => ({ source: s, hint: s.frameworkHint! }))
+      return (
+        <SiteScreen
+          sites={frameworkSites}
+          readIds={readIds}
+          onOpen={openArticle}
+          onBack={() => setTab('today')}
         />
       )
     }
@@ -976,6 +999,8 @@ export default function App() {
         onOpen={openArticle}
         onBrandTap={onBrandTap}
         pullRefreshSeq={todayPullRefreshSeq}
+        searchTemplate={activeFilterSource?.frameworkHint?.searchTemplate}
+        frameworkCategories={activeFilterSource?.frameworkHint?.categories}
       />
     )
   }
@@ -1008,6 +1033,8 @@ export default function App() {
             items: presetSwitcherItems,
             onSelect: (id) => presets.applyPreset(id),
             onManage: () => setSettingsRoute({ name: 'presets' }),
+            onSites: frameworkSiteCount > 0 ? () => setTab('sites') : undefined,
+            siteCount: frameworkSiteCount,
           }}
           onNavigateHome={() => {
             setTab('today')

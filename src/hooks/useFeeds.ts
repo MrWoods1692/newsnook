@@ -96,6 +96,10 @@ async function parseSourceArticles(
       signal,
     )
   }
+  if (source.frameworkHint?.categories?.length) {
+    const catUrls = new Set(source.frameworkHint.categories.map((c) => c.url))
+    return articles.filter((a) => !catUrls.has(a.originUrl))
+  }
   return articles
 }
 
