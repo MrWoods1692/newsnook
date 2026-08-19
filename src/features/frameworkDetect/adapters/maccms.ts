@@ -1,4 +1,15 @@
-import type { FrameworkHint, PaginationPattern } from '../types'
+import type { FrameworkHint, FrameworkSortOption, PaginationPattern } from '../types'
+import { extractCategoryLinks } from './shared'
+
+const MACCMS_SORT_OPTIONS: FrameworkSortOption[] = [
+  { key: 'default', label: '默认' },
+  { key: 'time', label: '更新' },
+  { key: 'hits', label: '热度' },
+  { key: 'hits_day', label: '日榜' },
+  { key: 'hits_week', label: '周榜' },
+  { key: 'hits_month', label: '月榜' },
+  { key: 'score', label: '评分' },
+]
 
 export function detectMaccms(html: string, pageUrl: string): FrameworkHint | null {
   if (!/var\s+maccms\s*=/.test(html)) return null
@@ -28,17 +39,28 @@ export function detectMaccms(html: string, pageUrl: string): FrameworkHint | nul
 
   return {
     framework: 'maccms',
+    themeVariant: variant,
     paginationPattern,
     categories: categories.length > 0 ? categories : undefined,
     searchTemplate,
+    sortOptions: MACCMS_SORT_OPTIONS,
   }
 }
 
-type MaccmsVariant = 'classic' | 'wntheme'
+type MaccmsVariant = 'classic' | 'wntheme' | 'stui' | 'mxone' | 'conch'
 
 function detectMaccmsVariant(html: string): MaccmsVariant {
   if (/\/template\/wntheme\d*\//.test(html) || /var\s+wntheme\s*=/.test(html)) {
     return 'wntheme'
+  }
+  if (/\/template\/stui_?\d*\//.test(html) || /stui-header__menu/i.test(html)) {
+    return 'stui'
+  }
+  if (/\/template\/mxone\//.test(html) || /mxone-theme|mx-theme/.test(html)) {
+    return 'mxone'
+  }
+  if (/\/template\/conch\//.test(html) || /hl-vod-list|hl-nav/i.test(html)) {
+    return 'conch'
   }
   return 'classic'
 }
@@ -48,29 +70,13 @@ function extractMaccmsNavCategories(
   pageUrl: string,
   variant: MaccmsVariant,
 ): { title: string; url: string }[] {
-  const results: { title: string; url: string }[] = []
-  const seen = new Set<string>()
-
   const patterns =
-    variant === 'wntheme'
-      ? [/<a\b[^>]+href=["']([^"']*\/vodtype\/\d+\/)["'][^>]*>([\s\S]*?)<\/a>/gi]
+    variant === 'wntheme' || variant === 'stui' || variant === 'mxone' || variant === 'conch'
+      ? [
+          /<a\b[^>]+href=["']([^"']*\/vodtype\/\d+\/)["'][^>]*>([\s\S]*?)<\/a>/gi,
+          /<a\b[^>]+href=["']([^"']*\/type\/\d+\/)["'][^>]*>([\s\S]*?)<\/a>/gi,
+        ]
       : [/<a\b[^>]+href=["']([^"']*\/vod\/type\/id\/\d+\.html)["'][^>]*>([\s\S]*?)<\/a>/gi]
 
-  for (const pattern of patterns) {
-    for (const match of html.matchAll(pattern)) {
-      const rawHref = match[1]
-      const rawTitle = match[2]?.replace(/<[^>]+>/g, '').trim() ?? ''
-      if (!rawTitle || !rawHref) continue
-      try {
-        const url = new URL(rawHref, pageUrl).href
-        if (seen.has(url)) continue
-        seen.add(url)
-        results.push({ title: rawTitle, url })
-      } catch {
-        continue
-      }
-    }
-  }
-
-  return results
+  return extractCategoryLinks(html, pageUrl, patterns)
 }

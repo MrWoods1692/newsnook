@@ -3,12 +3,16 @@ import { ChevronLeft, ChevronRight, Loader2, Search, X } from 'lucide-react'
 
 import { fetchAbsoluteText } from '../lib/http'
 import { catalogHtmlToArticles } from '../features/catalogEngine/toArticles'
-import { frameworkPageUrl, frameworkCategoryPageUrl } from '../features/frameworkDetect/buildPageUrl'
-import type { FrameworkHint } from '../features/frameworkDetect/types'
+import {
+  frameworkPageUrl,
+  frameworkCategoryPageUrl,
+  frameworkSearchUrl,
+} from '../features/frameworkDetect/buildPageUrl'
+import type { FrameworkHint, FrameworkSortKey } from '../features/frameworkDetect/types'
 import type { NewsSource } from '../sources/registry'
 import type { Article } from '../lib/types'
 
-const PAGINATION_NOISE_RE = /\/vodtype\/\d+-\d+\/|\/vod\/type\/id\/\d+\/page\/|[?&]page=\d/i
+const PAGINATION_NOISE_RE = /\/vodtype\/\d+-\d+\/|\/vod\/type\/id\/\d+\/page\/|\/type\/\d+-\d+\.html|vod-show-id-\d+-p-\d+|[?&]page=\d/i
 
 function filterFrameworkNoise(articles: Article[], hint: FrameworkHint): Article[] {
   const catUrls = new Set(hint.categories?.map((c) => c.url) ?? [])
@@ -49,6 +53,7 @@ export const SiteScreen = memo(function SiteScreen({
   const [searchQuery, setSearchQuery] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<Article[] | null>(null)
+  const [activeSortKey, setActiveSortKey] = useState<FrameworkSortKey>('default')
   const abortRef = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -58,6 +63,7 @@ export const SiteScreen = memo(function SiteScreen({
     site: SiteSource,
     catIdx: number | null,
     pageNum: number,
+    sortKey: FrameworkSortKey,
   ) => {
     abortRef.current?.abort()
     const controller = new AbortController()
@@ -72,6 +78,7 @@ export const SiteScreen = memo(function SiteScreen({
           site.hint.categories[catIdx].url,
           pageNum,
           site.hint,
+          sortKey,
         )
       } else {
         url = frameworkPageUrl(site.source.url, pageNum, site.hint.paginationPattern)
@@ -101,20 +108,23 @@ export const SiteScreen = memo(function SiteScreen({
     if (!activeSite) return
     setPage(0)
     setTotalPages(5)
-    fetchPage(activeSite, activeCatIdx, 0)
+    fetchPage(activeSite, activeCatIdx, 0, activeSortKey)
     listRef.current?.scrollTo({ top: 0 })
-  }, [activeSiteIdx, activeCatIdx]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeSiteIdx, activeCatIdx, activeSortKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const goPage = useCallback((p: number) => {
     if (!activeSite || loading) return
-    fetchPage(activeSite, activeCatIdx, p)
+    fetchPage(activeSite, activeCatIdx, p, activeSortKey)
     listRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
-  }, [activeSite, activeCatIdx, loading, fetchPage])
+  }, [activeSite, activeCatIdx, activeSortKey, loading, fetchPage])
 
   const handleSearch = useCallback(async () => {
     if (!activeSite?.hint.searchTemplate || !searchQuery.trim()) return
-    const url = activeSite.hint.searchTemplate.replace(
-      '{query}', encodeURIComponent(searchQuery.trim()),
+    const url = frameworkSearchUrl(
+      activeSite.hint,
+      activeSite.hint.searchTemplate,
+      searchQuery.trim(),
+      activeSortKey,
     )
     setSearching(true)
     try {
@@ -126,7 +136,7 @@ export const SiteScreen = memo(function SiteScreen({
     } finally {
       setSearching(false)
     }
-  }, [activeSite, searchQuery])
+  }, [activeSite, activeSortKey, searchQuery])
 
   const clearSearch = useCallback(() => {
     setSearchQuery('')
@@ -135,6 +145,7 @@ export const SiteScreen = memo(function SiteScreen({
 
   const displayedArticles = searchResults ?? articles
   const categories = activeSite?.hint.categories
+  const sortOptions = activeSite?.hint.sortOptions
 
   if (!sites.length) {
     return (
@@ -169,6 +180,7 @@ export const SiteScreen = memo(function SiteScreen({
               onClick={() => {
                 setActiveSiteIdx(idx)
                 setActiveCatIdx(sites[idx]?.hint.categories?.length ? 0 : null)
+                setActiveSortKey('default')
                 setSearchQuery('')
                 setSearchResults(null)
               }}
@@ -213,6 +225,28 @@ export const SiteScreen = memo(function SiteScreen({
             >
               {searching ? <Loader2 size={14} className="animate-spin" /> : '搜索'}
             </button>
+          </div>
+        )}
+
+        {sortOptions && sortOptions.length > 1 && (
+          <div className="page-x flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+            {sortOptions.map((option) => (
+              <button
+                key={option.key}
+                type="button"
+                onClick={() => {
+                  setActiveSortKey(option.key)
+                  setSearchResults(null)
+                }}
+                className={`shrink-0 rounded-full px-3.5 py-1 text-[12px] font-medium transition-colors ${
+                  activeSortKey === option.key
+                    ? 'bg-cinnabar text-white'
+                    : 'bg-paper/8 text-paper-muted hover:bg-paper/15'
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
           </div>
         )}
 
@@ -283,7 +317,7 @@ export const SiteScreen = memo(function SiteScreen({
                 className="group overflow-hidden rounded-xl border border-haze/50 bg-paper/5 text-left transition-colors hover:border-cinnabar/30 hover:bg-paper/10"
               >
                 {article.image && (
-                  <div className="aspect-[16/10] w-full overflow-hidden bg-ink">
+                  <div className="aspect-16/10 w-full overflow-hidden bg-ink">
                     <img
                       src={article.image}
                       alt=""

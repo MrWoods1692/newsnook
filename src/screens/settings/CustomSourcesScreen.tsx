@@ -703,11 +703,18 @@ export function CustomSourcesScreen({
 
                     {probeCatalogHit.frameworkHint && (
                       <div className="mt-1.5 font-mono text-[10px] text-emerald-700 dark:text-emerald-400">
-                        已识别为 {probeCatalogHit.frameworkHint.framework.toUpperCase()} 站点
+                        已识别为 {probeCatalogHit.frameworkHint.framework.toUpperCase()}
+                        {probeCatalogHit.frameworkHint.themeVariant
+                          ? ` · ${probeCatalogHit.frameworkHint.themeVariant} 主题`
+                          : ''}
+                        {' '}站点
                         {probeCatalogHit.frameworkHint.categories?.length
                           ? ` · ${probeCatalogHit.frameworkHint.categories.length} 个分类`
                           : ''}
                         {probeCatalogHit.frameworkHint.searchTemplate ? ' · 支持站内搜索' : ''}
+                        {probeCatalogHit.frameworkHint.sortOptions?.length
+                          ? ' · 支持排序'
+                          : ''}
                       </div>
                     )}
                   </div>

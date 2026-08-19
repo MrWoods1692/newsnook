@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 
 import type { PaginationPattern } from '../src/features/frameworkDetect/types'
-import { frameworkPageUrl } from '../src/features/frameworkDetect/buildPageUrl'
+import {
+  frameworkCategoryPageUrl,
+  frameworkPageUrl,
+  frameworkSearchUrl,
+} from '../src/features/frameworkDetect/buildPageUrl'
 import { detectFramework } from '../src/features/frameworkDetect/detect'
 import {
   pagingStrategyOf,
@@ -67,10 +71,34 @@ const maccmsHtml = `<html><head><title>Test</title></head><body>
 const maccms = detectFramework(maccmsHtml, 'https://example.com/index.php')
 assert.ok(maccms, 'should detect MacCMS')
 assert.equal(maccms!.framework, 'maccms')
+assert.equal(maccms!.themeVariant, 'classic')
 assert.equal(maccms!.paginationPattern.kind, 'path-segment')
 assert.ok(maccms!.categories && maccms!.categories.length >= 3, 'should find categories')
 assert.ok(maccms!.searchTemplate?.includes('{query}'), 'should have search template')
+assert.ok(maccms!.sortOptions?.some((option) => option.key === 'hits'), 'should expose sort options')
 console.log('✓ MacCMS detection passed')
+
+const wnthemeHtml = `<html><body>
+<script>var maccms={"mid":"1"};var wntheme={};</script>
+<a href="/vodtype/1/">最新资讯</a>
+</body></html>`
+const wntheme = detectFramework(wnthemeHtml, 'https://example.com/')
+assert.ok(wntheme, 'should detect wntheme variant')
+assert.equal(wntheme!.framework, 'maccms')
+assert.equal(wntheme!.themeVariant, 'wntheme')
+assert.ok(wntheme!.categories?.some((item) => item.url.includes('/vodtype/1/')))
+console.log('✓ MacCMS wntheme variant passed')
+
+const stuiHtml = `<html><body>
+<script>var maccms={"mid":"1"};</script>
+<link rel="stylesheet" href="/template/stui_1/css/stui.css">
+<a href="/vodtype/3/">综艺节目</a>
+</body></html>`
+const stui = detectFramework(stuiHtml, 'https://example.com/')
+assert.ok(stui, 'should detect stui variant')
+assert.equal(stui!.framework, 'maccms')
+assert.equal(stui!.themeVariant, 'stui')
+console.log('✓ MacCMS stui variant passed')
 
 // --- WordPress ---
 console.log('Testing WordPress detection...')
@@ -147,6 +175,118 @@ assert.equal(generic!.framework, 'generic')
 assert.equal(generic!.paginationPattern.kind, 'next-link')
 console.log('✓ Generic rel=next detection passed')
 
+// --- SeaCMS ---
+console.log('Testing SeaCMS detection...')
+const seacmsHtml = `<html><head><title>Test</title></head><body>
+<div>Powered by SeaCMS</div>
+<link rel="stylesheet" href="/template/default/css/app.css">
+<script src="/js/player.js"></script>
+<nav>
+<a href="/type/1.html">最新资讯</a>
+<a href="/type/2.html">影视剧集</a>
+<a href="/type/3.html">综艺节目</a>
+</nav>
+</body></html>`
+
+const seacms = detectFramework(seacmsHtml, 'https://sea.example.com/')
+assert.ok(seacms, 'should detect SeaCMS')
+assert.equal(seacms!.framework, 'seacms')
+assert.equal(seacms!.themeVariant, 'default')
+assert.equal(seacms!.paginationPattern.kind, 'path-segment')
+assert.ok(seacms!.categories && seacms!.categories.length >= 3, 'should find SeaCMS categories')
+assert.ok(seacms!.searchTemplate?.includes('search.php'), 'should have search template')
+assert.ok(seacms!.sortOptions?.some((option) => option.key === 'hits'), 'should expose SeaCMS sort options')
+console.log('✓ SeaCMS detection passed')
+
+const seacmsVfedHtml = `<html><body>
+<div>Powered by SeaCMS</div>
+<div class="fed-navs"></div>
+<script src="/template/vfed/js/app.js"></script>
+<a href="/type/8.html">纪录片</a>
+</body></html>`
+const seacmsVfed = detectFramework(seacmsVfedHtml, 'https://sea.example.com/')
+assert.ok(seacmsVfed, 'should detect SeaCMS vfed variant')
+assert.equal(seacmsVfed!.framework, 'seacms')
+assert.equal(seacmsVfed!.themeVariant, 'vfed')
+console.log('✓ SeaCMS vfed variant passed')
+
+// --- FYFCMS ---
+console.log('Testing FYFCMS detection...')
+const fyfcmsHtml = `<html><head><title>Test</title></head><body>
+<link rel="stylesheet" href="/template/feifeicms/default/css/style.css">
+<nav>
+<a href="/index.php?s=/vod-show-id-1.html">最新资讯</a>
+<a href="/index.php?s=/vod-show-id-2.html">影视剧集</a>
+</nav>
+</body></html>`
+
+const fyfcms = detectFramework(fyfcmsHtml, 'https://fyf.example.com/')
+assert.ok(fyfcms, 'should detect FYFCMS')
+assert.equal(fyfcms!.framework, 'fyfcms')
+assert.equal(fyfcms!.themeVariant, 'default')
+assert.ok(fyfcms!.categories && fyfcms!.categories.length >= 2, 'should find FYFCMS categories')
+assert.ok(fyfcms!.searchTemplate?.includes('vod-search-wd-'), 'should have search template')
+assert.ok(fyfcms!.sortOptions?.some((option) => option.key === 'score'), 'should expose FYFCMS sort options')
+console.log('✓ FYFCMS detection passed')
+
+// --- JEECMS ---
+console.log('Testing JEECMS detection...')
+const jeecmsHtml = `<html><head><title>Test</title></head><body>
+<div>Powered by JEECMS</div>
+<nav>
+<a href="/channel/1.jhtml">最新资讯</a>
+<a href="/channel/2.jhtml">影视剧集</a>
+</nav>
+</body></html>`
+
+const jeecms = detectFramework(jeecmsHtml, 'https://jee.example.com/')
+assert.ok(jeecms, 'should detect JEECMS')
+assert.equal(jeecms!.framework, 'jeecms')
+assert.equal(jeecms!.themeVariant, undefined)
+assert.equal(jeecms!.paginationPattern.kind, 'query-param')
+assert.ok(jeecms!.categories && jeecms!.categories.length >= 2, 'should find JEECMS categories')
+assert.ok(jeecms!.searchTemplate?.includes('search.jspx'), 'should have search template')
+console.log('✓ JEECMS detection passed')
+
+const jeecmsStaticHtml = `<html><body>
+<div>Powered by JEECMS</div>
+<link rel="stylesheet" href="/r/cms/www/default/style.css">
+<a href="/channel/9.jhtml">地方频道</a>
+</body></html>`
+const jeecmsStatic = detectFramework(jeecmsStaticHtml, 'https://jee.example.com/')
+assert.ok(jeecmsStatic, 'should detect JEECMS static variant')
+assert.equal(jeecmsStatic!.themeVariant, 'cms-static')
+console.log('✓ JEECMS static variant passed')
+
+// --- ZanPian ---
+console.log('Testing ZanPian detection...')
+const zanpianHtml = `<html><head><title>Test</title></head><body>
+<script>var zanpian={"ver":"3.0"};</script>
+<nav>
+<a href="/vodtype/1/">最新资讯</a>
+<a href="/vodtype/2/">影视剧集</a>
+</nav>
+</body></html>`
+
+const zanpian = detectFramework(zanpianHtml, 'https://zp.example.com/')
+assert.ok(zanpian, 'should detect ZanPian')
+assert.equal(zanpian!.framework, 'zanpian')
+assert.equal(zanpian!.themeVariant, undefined)
+assert.ok(zanpian!.categories && zanpian!.categories.length >= 2, 'should find ZanPian categories')
+assert.ok(zanpian!.searchTemplate?.includes('{query}'), 'should have search template')
+assert.ok(zanpian!.sortOptions?.some((option) => option.key === 'score'), 'should expose sort options')
+console.log('✓ ZanPian detection passed')
+
+const zanpianStuiHtml = `<html><body>
+<script>var zanpian={"ver":"3.0"};</script>
+<link rel="stylesheet" href="/template/stui/css/stui.css">
+<a href="/vodtype/2/">影视剧集</a>
+</body></html>`
+const zanpianStui = detectFramework(zanpianStuiHtml, 'https://zp.example.com/')
+assert.ok(zanpianStui, 'should detect ZanPian stui variant')
+assert.equal(zanpianStui!.themeVariant, 'stui')
+console.log('✓ ZanPian stui variant passed')
+
 // --- No framework ---
 console.log('Testing no-framework fallback...')
 const plainHtml = `<html><head><title>Plain</title></head><body><p>Hello</p></body></html>`
@@ -185,6 +325,87 @@ assert.equal(
 assert.equal(
   offsetPageRequest(maccmsSource, 1).url,
   'https://example.com/index.php/vod/type/id/1/page/2.html',
+)
+
+assert.equal(
+  frameworkCategoryPageUrl(
+    'https://example.com/index.php/vod/type/id/1.html',
+    0,
+    maccmsSource.frameworkHint!,
+    'hits',
+  ),
+  'https://example.com/index.php/vod/show/id/1/by/hits/order/desc.html',
+)
+assert.equal(
+  frameworkCategoryPageUrl(
+    'https://example.com/index.php/vod/type/id/1.html',
+    2,
+    maccmsSource.frameworkHint!,
+    'hits_week',
+  ),
+  'https://example.com/index.php/vod/show/id/1/by/hits_week/order/desc/page/3.html',
+)
+
+const zanpianHint = {
+  framework: 'zanpian' as const,
+  paginationPattern: {
+    kind: 'path-segment' as const,
+    template: 'https://zp.example.com/vodtype/1/page/{page}.html',
+  },
+}
+assert.equal(
+  frameworkCategoryPageUrl(
+    'https://zp.example.com/vodtype/9/',
+    1,
+    zanpianHint,
+    'score',
+  ),
+  'https://zp.example.com/index.php/vod/show/id/9/by/score/order/desc/page/2.html',
+)
+assert.equal(
+  frameworkCategoryPageUrl(
+    'https://sea.example.com/type/9.html',
+    1,
+    { framework: 'seacms', paginationPattern: { kind: 'path-segment', template: '' } },
+    'hits',
+  ),
+  'https://sea.example.com/type/9-2.html?order=hit',
+)
+assert.equal(
+  frameworkCategoryPageUrl(
+    'https://fyf.example.com/index.php?s=/vod-show-id-9.html',
+    0,
+    { framework: 'fyfcms', paginationPattern: { kind: 'path-segment', template: '' } },
+    'score',
+  ),
+  'https://fyf.example.com/index.php?s=/vod-show-id-9-by-score-order-desc.html',
+)
+assert.equal(
+  frameworkSearchUrl(
+    { framework: 'maccms', paginationPattern: { kind: 'path-segment', template: '' } },
+    'https://example.com/index.php/vod/search.html?wd={query}',
+    'test keyword',
+    'hits_week',
+  ),
+  'https://example.com/index.php/vod/search.html?wd=test+keyword&by=hits_week&order=desc',
+)
+assert.equal(
+  frameworkSearchUrl(
+    { framework: 'seacms', paginationPattern: { kind: 'path-segment', template: '' } },
+    'https://sea.example.com/search.php?searchword={query}',
+    'test keyword',
+    'hits',
+  ),
+  'https://sea.example.com/search.php?searchword=test+keyword&order=hit',
+)
+assert.equal(
+  frameworkSearchUrl(
+    { framework: 'fyfcms', paginationPattern: { kind: 'path-segment', template: '' } },
+    'https://fyf.example.com/index.php?s=/vod-search-wd-{query}.html',
+    'test keyword',
+    'score',
+  ),
+  'https://fyf.example.com/index.php?s=/vod-search-wd-test%20keyword-by-score-order-desc.html',
 )
 
 // web-catalog WITHOUT frameworkHint, no page param → client-catalog (unchanged)
