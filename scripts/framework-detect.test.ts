@@ -3,6 +3,11 @@ import assert from 'node:assert/strict'
 import type { FrameworkHint, PaginationPattern } from '../src/features/frameworkDetect/types'
 import { frameworkPageUrl } from '../src/features/frameworkDetect/buildPageUrl'
 import { detectFramework } from '../src/features/frameworkDetect/detect'
+import {
+  pagingStrategyOf,
+  offsetPageRequest,
+  type NewsSource,
+} from '../src/sources/registry'
 
 console.log('Testing frameworkPageUrl...')
 
@@ -148,3 +153,51 @@ const plainHtml = `<html><head><title>Plain</title></head><body><p>Hello</p></bo
 const none = detectFramework(plainHtml, 'https://plain.example.com/')
 assert.equal(none, null, 'should return null for unrecognized HTML')
 console.log('✓ No-framework fallback passed')
+
+console.log('Testing pagination integration...')
+
+const maccmsSource: NewsSource = {
+  id: 'custom_test_mac',
+  name: 'Test MacCMS',
+  label: 'Test',
+  group: 'custom',
+  kind: 'web-catalog',
+  url: 'https://example.com/index.php/vod/type/id/1.html',
+  enabled: true,
+  isCustom: true,
+  frameworkHint: {
+    framework: 'maccms',
+    paginationPattern: {
+      kind: 'path-segment',
+      template: 'https://example.com/index.php/vod/type/id/1/page/{page}.html',
+    },
+  },
+}
+
+// web-catalog with frameworkHint → upstream-offset
+assert.equal(pagingStrategyOf(maccmsSource), 'upstream-offset')
+
+// page 0 → base URL; page 1 → /page/2.html
+assert.equal(
+  offsetPageRequest(maccmsSource, 0).url,
+  'https://example.com/index.php/vod/type/id/1.html',
+)
+assert.equal(
+  offsetPageRequest(maccmsSource, 1).url,
+  'https://example.com/index.php/vod/type/id/1/page/2.html',
+)
+
+// web-catalog WITHOUT frameworkHint, no page param → client-catalog (unchanged)
+const plainCatalogSource: NewsSource = {
+  id: 'custom_test_plain',
+  name: 'Plain Catalog',
+  label: 'Plain',
+  group: 'custom',
+  kind: 'web-catalog',
+  url: 'https://example.com/articles',
+  enabled: true,
+  isCustom: true,
+}
+assert.equal(pagingStrategyOf(plainCatalogSource), 'client-catalog')
+
+console.log('✓ Pagination integration tests passed')
