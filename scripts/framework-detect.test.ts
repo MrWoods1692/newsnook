@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type { FrameworkHint, PaginationPattern } from '../src/features/frameworkDetect/types'
+import type { PaginationPattern } from '../src/features/frameworkDetect/types'
 import { frameworkPageUrl } from '../src/features/frameworkDetect/buildPageUrl'
 import { detectFramework } from '../src/features/frameworkDetect/detect'
 import {
