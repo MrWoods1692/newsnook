@@ -664,6 +664,7 @@ export function addCustomSource(
     siteUrl?: string
     group?: SourceGroup
     kind?: NewsSource['kind']
+    frameworkHint?: import('../features/frameworkDetect/types').FrameworkHint
   },
   targetCategoryId?: CategoryId,
 ): { nextPrefs: Preferences; newSourceId: string } {
@@ -687,6 +688,7 @@ export function addCustomSource(
     enabled: true,
     isCustom: true,
     createdAt: Date.now(),
+    ...(draft.frameworkHint ? { frameworkHint: draft.frameworkHint } : {}),
   }
 
   let nextSources: NewsSource[]

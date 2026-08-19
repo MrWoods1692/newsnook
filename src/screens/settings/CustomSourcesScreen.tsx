@@ -37,6 +37,8 @@ import {
   type Preferences,
 } from '../../sources/preferences'
 import type { NewsSource } from '../../sources/registry'
+import { detectFramework } from '../../features/frameworkDetect/detect'
+import type { FrameworkHint } from '../../features/frameworkDetect/types'
 
 interface Props {
   prefs: Preferences
@@ -47,6 +49,7 @@ interface Props {
       url: string
       siteUrl?: string
       kind?: NewsSource['kind']
+      frameworkHint?: FrameworkHint
     },
     targetCategoryId?: CategoryId,
   ) => void
@@ -84,7 +87,9 @@ export function CustomSourcesScreen({
   const [probeCatalogHit, setProbeCatalogHit] = useState<{
     name: string
     extractor?: string
+    frameworkHint?: FrameworkHint
   } | null>(null)
+  const [selectedCategories, setSelectedCategories] = useState<Set<number>>(new Set())
 
   // OPML 导入状态
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -257,7 +262,11 @@ export function CustomSourcesScreen({
               ? '通用卡片'
               : '通用'
 
-        setProbeCatalogHit({ name: displayName, extractor: extractorLabel })
+        const hint = detectFramework(text, normalizedUrl)
+        setProbeCatalogHit({ name: displayName, extractor: extractorLabel, frameworkHint: hint ?? undefined })
+        if (hint?.categories?.length) {
+          setSelectedCategories(new Set(hint.categories.map((_, i) => i)))
+        }
         if (!inputName) {
           setInputName(displayName)
           setInputLabel(displayName.slice(0, 4))
@@ -312,6 +321,9 @@ export function CustomSourcesScreen({
       siteUrl = `https://${siteUrl}`
     }
 
+    const hint = probeCatalogHit?.frameworkHint
+    const cats = hint?.categories
+
     if (editingSourceId) {
       onUpdateCustomSource(editingSourceId, {
         url,
@@ -320,6 +332,40 @@ export function CustomSourcesScreen({
         siteUrl,
         ...(probeCatalogHit ? { kind: 'web-catalog' as const } : {}),
       })
+    } else if (cats?.length && selectedCategories.size > 0) {
+      const targetCatId =
+        targetCategory !== 'none' ? (targetCategory as CategoryId) : undefined
+      for (const idx of selectedCategories) {
+        const cat = cats[idx]
+        if (!cat) continue
+        const catUrl = cat.url
+        const catName = `${name} · ${cat.title}`
+        const catLabel = cat.title.slice(0, 4)
+        const catHint: FrameworkHint | undefined = hint
+          ? {
+              ...hint,
+              categories: undefined,
+              paginationPattern:
+                hint.paginationPattern.kind === 'path-segment'
+                  ? {
+                      kind: 'path-segment',
+                      template: catUrl.replace(/\.html$/i, '') + '/page/{page}.html',
+                    }
+                  : hint.paginationPattern,
+            }
+          : undefined
+        onAddCustomSource(
+          {
+            name: catName,
+            label: catLabel,
+            url: catUrl,
+            siteUrl,
+            kind: 'web-catalog',
+            frameworkHint: catHint,
+          },
+          targetCatId,
+        )
+      }
     } else {
       const targetCatId =
         targetCategory !== 'none' ? (targetCategory as CategoryId) : undefined
@@ -330,6 +376,7 @@ export function CustomSourcesScreen({
           url,
           siteUrl,
           ...(probeCatalogHit ? { kind: 'web-catalog' as const } : {}),
+          ...(hint ? { frameworkHint: hint } : {}),
         },
         targetCatId,
       )
@@ -692,6 +739,63 @@ export function CustomSourcesScreen({
                       已识别为网页目录（{probeCatalogHit.extractor ?? '通用'}）。将重排为 App 信息流；点进条目后在
                       Android 上嗅探播放。
                     </span>
+
+                    {probeCatalogHit.frameworkHint && (
+                      <div className="mt-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-2.5">
+                        <span className="block font-mono text-[10px] text-emerald-300">
+                          已识别为 {probeCatalogHit.frameworkHint.framework.toUpperCase()} 站点
+                          {probeCatalogHit.frameworkHint.searchTemplate ? ' · 支持站内搜索' : ''}
+                        </span>
+
+                        {probeCatalogHit.frameworkHint.categories &&
+                          probeCatalogHit.frameworkHint.categories.length > 0 && (
+                            <div className="mt-2 space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="font-mono text-[10px] text-paper-muted">
+                                  发现 {probeCatalogHit.frameworkHint.categories.length} 个分类
+                                </span>
+                                <button
+                                  type="button"
+                                  className="font-mono text-[10px] text-cinnabar-soft hover:text-cinnabar"
+                                  onClick={() => {
+                                    const cats = probeCatalogHit.frameworkHint!.categories!
+                                    if (selectedCategories.size === cats.length) {
+                                      setSelectedCategories(new Set())
+                                    } else {
+                                      setSelectedCategories(new Set(cats.map((_, i) => i)))
+                                    }
+                                  }}
+                                >
+                                  {selectedCategories.size === probeCatalogHit.frameworkHint.categories.length
+                                    ? '全不选'
+                                    : '全选'}
+                                </button>
+                              </div>
+                              {probeCatalogHit.frameworkHint.categories.map((cat, idx) => (
+                                <label
+                                  key={cat.url}
+                                  className="flex items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-paper/5"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedCategories.has(idx)}
+                                    onChange={() => {
+                                      setSelectedCategories((prev) => {
+                                        const next = new Set(prev)
+                                        if (next.has(idx)) next.delete(idx)
+                                        else next.add(idx)
+                                        return next
+                                      })
+                                    }}
+                                    className="accent-cinnabar"
+                                  />
+                                  <span className="text-[12px] text-paper">{cat.title}</span>
+                                </label>
+                              ))}
+                            </div>
+                          )}
+                      </div>
+                    )}
                   </div>
                 )}
 
