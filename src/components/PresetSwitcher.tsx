@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { memo, useEffect, useId, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, ChevronDown, Globe, LayoutTemplate, Settings2 } from 'lucide-react'
 
@@ -46,57 +46,44 @@ export function PresetSwitcher({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false)
     }
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
     window.addEventListener('keydown', onKey)
     return () => {
-      document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', onKey)
     }
   }, [open])
 
-  const builtins = items.filter((item) => item.builtin)
-  const mine = items.filter((item) => !item.builtin)
+  const builtins = useMemo(() => items.filter((item) => item.builtin), [items])
+  const mine = useMemo(() => items.filter((item) => !item.builtin), [items])
 
+  // 不用 backdrop-blur：全屏毛玻璃在 Android WebView 上会强制栅格化整页信息流，
+  // 打开时常卡数百毫秒～1s+。半透明遮罩 + 轻位移入场即可，兼容 Chrome 69。
   const sheet =
     open &&
     createPortal(
       <div
-        className="fixed inset-0 z-[80] flex items-end justify-center md:items-center p-0 md:p-6 backdrop-blur-sm"
+        className="fixed inset-0 z-[80] flex items-end justify-center md:items-center p-0 md:p-6"
         role="presentation"
       >
-        {/* 背景遮罩 */}
         <button
           type="button"
           aria-label="关闭"
-          className="absolute inset-0 bg-black/60 transition-opacity"
+          className="absolute inset-0 bg-black/55"
           onClick={() => setOpen(false)}
         />
 
-        {/* 弹窗主体（移动端底部抽屉，PC端居中卡片） */}
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
-          className="relative z-10 flex max-h-[min(82vh,580px)] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl md:rounded-2xl border border-haze/90 bg-ink-raised shadow-2xl"
+          className="preset-switcher-sheet relative z-10 flex max-h-[min(82vh,580px)] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl md:rounded-2xl border border-haze/90 bg-ink-raised shadow-lg"
           style={{
             paddingBottom: 'calc(var(--sab, 0px) + 14px)',
-            animation: 'preset-modal-in 240ms var(--ease-ink) both',
           }}
         >
-          <style>{`
-            @keyframes preset-modal-in {
-              from { opacity: 0.4; transform: translateY(16px) scale(0.98); }
-              to { opacity: 1; transform: none; }
-            }
-          `}</style>
-
-          {/* 移动端拖拽指示条 */}
           <div className="flex shrink-0 justify-center pt-2.5 pb-1 md:hidden" aria-hidden>
             <span className="h-1 w-10 rounded-full bg-haze" />
           </div>
 
-          {/* 头部标题与管理入口 */}
           <div className="page-x flex shrink-0 items-center justify-between gap-3 pt-3 pb-3 border-b border-haze/50">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-cinnabar/15 text-cinnabar">
@@ -124,7 +111,6 @@ export function PresetSwitcher({
             </button>
           </div>
 
-          {/* 预设列表 */}
           <div className="scroll-hidden min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5 space-y-4">
             {builtins.length > 0 && (
               <section>
@@ -186,7 +172,7 @@ export function PresetSwitcher({
                     setOpen(false)
                     onSites()
                   }}
-                  className="group flex w-full items-center gap-3.5 rounded-xl border border-haze/80 bg-ink/50 p-3 text-left transition-all duration-200 hover:border-cinnabar/40 hover:bg-ink-raised"
+                  className="group flex w-full items-center gap-3.5 rounded-xl border border-haze/80 bg-ink/50 p-3 text-left transition-colors hover:border-cinnabar/40 hover:bg-ink-raised"
                 >
                   <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-ink-raised border border-haze text-paper-muted group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
                     <Globe size={15} strokeWidth={1.6} />
@@ -199,7 +185,7 @@ export function PresetSwitcher({
                       {siteCount} 个站点可浏览
                     </span>
                   </span>
-                  <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-all">
+                  <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
                     进入
                   </span>
                 </button>
@@ -283,7 +269,7 @@ export function PresetSwitcher({
   )
 }
 
-function PresetPickRow({
+const PresetPickRow = memo(function PresetPickRow({
   item,
   onPick,
 }: {
@@ -295,17 +281,16 @@ function PresetPickRow({
       <button
         type="button"
         onClick={onPick}
-        className={`group relative flex w-full items-center gap-3.5 rounded-xl border p-3 text-left transition-all duration-200 ${
+        className={`group relative flex w-full items-center gap-3.5 rounded-xl border p-3 text-left transition-colors ${
           item.active
-            ? 'border-cinnabar/60 bg-cinnabar/12 shadow-xs'
+            ? 'border-cinnabar/60 bg-cinnabar/12'
             : 'border-haze/80 bg-ink/50 hover:border-cinnabar/40 hover:bg-ink-raised'
         }`}
       >
-        {/* 左侧图标/状态指示 */}
         <div
           className={`flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors ${
             item.active
-              ? 'bg-cinnabar text-white shadow-xs'
+              ? 'bg-cinnabar text-white'
               : 'bg-ink-raised border border-haze text-paper-muted group-hover:border-cinnabar/40 group-hover:text-cinnabar'
           }`}
         >
@@ -335,11 +320,11 @@ function PresetPickRow({
         </span>
 
         {!item.active && (
-          <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-all">
+          <span className="shrink-0 rounded-full border border-haze/80 bg-ink px-2.5 py-1 font-mono text-[10.5px] font-medium text-paper-faint group-hover:border-cinnabar/40 group-hover:text-cinnabar transition-colors">
             选用
           </span>
         )}
       </button>
     </li>
   )
-}
+})

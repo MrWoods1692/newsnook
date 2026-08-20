@@ -378,6 +378,32 @@
     fill 240ms var(--ease-ink);
 }
 
+/* 预设切换抽屉：只用 translateY，避免 scale + 全屏 blur 在 WebView 上卡首帧 */
+@keyframes preset-switcher-in {
+  from {
+    opacity: 0.85;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.preset-switcher-sheet {
+  animation: preset-switcher-in 160ms var(--ease-ink) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .preset-switcher-sheet {
+    animation: none;
+  }
+}
+
+html[data-eink='1'] .preset-switcher-sheet {
+  animation: none;
+}
+
 @layer utilities {
   .scroll-hidden {
     scrollbar-width: none;
