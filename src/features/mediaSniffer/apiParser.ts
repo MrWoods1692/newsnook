@@ -7,6 +7,7 @@ const URL_FIELDS = [
   'base_url',
   'playurl',
   'play_url',
+  'play_data',
   'backupUrl',
   'backup_url',
   'manifestUrl',

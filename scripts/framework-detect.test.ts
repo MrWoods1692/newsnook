@@ -100,6 +100,156 @@ assert.equal(stui!.framework, 'maccms')
 assert.equal(stui!.themeVariant, 'stui')
 console.log('✓ MacCMS stui variant passed')
 
+console.log('Testing MacCMS const + ds3 rewrite theme...')
+const ds3Html = `<html><head>
+<link href="/static/ds3/css/common.css" rel="stylesheet">
+</head><body>
+<script>const maccms={"path":"","url":"huarenok.com"};</script>
+<a href="/vodshow/1.html">电影</a>
+<a href="/vodtype/2.html">电视剧</a>
+<a href="/vodtype/3.html">综艺</a>
+<form action="/vodsearch.html"><input name="wd"></form>
+</body></html>`
+const ds3 = detectFramework(ds3Html, 'https://huarenok.com/')
+assert.ok(ds3, 'should detect MacCMS from const maccms')
+assert.equal(ds3!.framework, 'maccms')
+assert.equal(ds3!.themeVariant, 'ds3')
+assert.ok(ds3!.categories?.some((item) => item.url.endsWith('/vodshow/1.html')))
+assert.ok(ds3!.categories?.some((item) => item.url.endsWith('/vodtype/2.html')))
+assert.equal(ds3!.searchTemplate, 'https://huarenok.com/vodsearch.html?wd={query}')
+assert.equal(
+  frameworkCategoryPageUrl('https://huarenok.com/vodtype/2.html', 1, ds3!),
+  'https://huarenok.com/vodtype/2-2.html',
+)
+console.log('✓ MacCMS const/ds3 detection passed')
+
+// --- 努努影院 nnyy ---
+console.log('Testing nnyy detection...')
+const nnyyHtml = `<html><head>
+<link type="text/css" rel="stylesheet" href="/static/css/movie.css?v=2" />
+<title>努努影院</title>
+</head><body class="searchon m-nav-full index">
+<form method="get" action="/so" class="searchform"><input name="q"></form>
+<div class="nav"><ul>
+<li><a href="/">首页</a></li>
+<li><a href="/dianying/">电影</a></li>
+<li><a href="/dianshiju/">电视剧</a></li>
+<li><a href="/zongyi/">综艺</a></li>
+<li><a href="/dongman/">动漫</a></li>
+</ul></div>
+<div class="lists lists-thumb-top"><a href="/dianying/20252607.html"><img alt="窥欲者"></a></div>
+</body></html>`
+const nnyy = detectFramework(nnyyHtml, 'https://nnyy.in/')
+assert.ok(nnyy, 'should detect nnyy')
+assert.equal(nnyy!.framework, 'nnyy')
+assert.equal(nnyy!.paginationPattern.kind, 'query-param')
+assert.equal(nnyy!.searchTemplate, 'https://nnyy.in/so?q={query}')
+assert.ok(nnyy!.categories?.some((item) => item.url.endsWith('/dianying/')))
+assert.equal(
+  frameworkCategoryPageUrl('https://nnyy.in/dianying/', 1, nnyy!),
+  'https://nnyy.in/dianying/?page=2',
+)
+console.log('✓ nnyy detection passed')
+
+console.log('Testing MacCMS deep fingerprints without maccms variable...')
+const macRenamedHtml = `<html><body>
+<script>MacPlayer.Show(); var app_config={"path":"/"};</script>
+<script src="/static/player/dplayer.js"></script>
+<a href="/vodshow/1-----------.html">电影</a>
+<a href="/voddetail/1234.html">某片</a>
+<a href="/index.php/ajax/suggest?mid=1&wd=test">suggest</a>
+</body></html>`
+const macRenamed = detectFramework(macRenamedHtml, 'https://renamed.example.com/')
+assert.ok(macRenamed, 'should detect MacCMS after renaming maccms')
+assert.equal(macRenamed!.framework, 'maccms')
+assert.ok(macRenamed!.searchTemplate?.includes('{query}'))
+console.log('✓ MacCMS renamed-variable fingerprints passed')
+
+const conchThemeHtml = `<html><body>
+<ul class="hl-vod-list"></ul>
+<div class="hl-tabs"></div>
+<a href="/vod/detail/id/88.html">详情</a>
+<a href="/vod/type/id/1.html">电影</a>
+<a href="/vod/type/id/2.html">电视剧</a>
+<script src="/index.php/ajax/hits?mid=1&id=88&type=update"></script>
+</body></html>`
+const conch = detectFramework(conchThemeHtml, 'https://conch.example.com/')
+assert.ok(conch, 'should detect MacCMS via Conch + ajax/hits')
+assert.equal(conch!.framework, 'maccms')
+assert.equal(conch!.themeVariant, 'conch')
+assert.ok(conch!.categories?.some((item) => item.url.includes('/vod/type/id/1.html')))
+console.log('✓ MacCMS Conch theme fingerprints passed')
+
+const vfedThemeHtml = `<html><body>
+<nav class="fed-pops-navbar"></nav>
+<script src="/template/vfed/js/vfed.min.js"></script>
+<a href="/vodtype/1.html">电影</a>
+<a href="/vodplay/12-1-1.html">播放</a>
+<script>MacPlayer.PlayUrl="https://cdn.example/a.m3u8";</script>
+</body></html>`
+const vfed = detectFramework(vfedThemeHtml, 'https://vfed.example.com/')
+assert.ok(vfed, 'should detect MacCMS via vfed + MacPlayer')
+assert.equal(vfed!.framework, 'maccms')
+assert.equal(vfed!.themeVariant, 'vfed')
+console.log('✓ MacCMS vfed theme fingerprints passed')
+
+const mxproHtml = `<html><body>
+<div class="mxpro-vod"></div>
+<a href="/vodshow/2--------2---.html">分页</a>
+<script src="/static/js/home.js"></script>
+<script>MacPlayer.Flag="play";</script>
+</body></html>`
+const mxpro = detectFramework(mxproHtml, 'https://mxpro.example.com/')
+assert.ok(mxpro, 'should detect MacCMS via MXPro')
+assert.equal(mxpro!.framework, 'maccms')
+assert.equal(mxpro!.themeVariant, 'mxpro')
+console.log('✓ MacCMS MXPro theme fingerprints passed')
+
+const macV8Html = `<html><body>
+<a href="index.php?m=vod-type-id-1">电影</a>
+<a href="index.php?m=vod-detail-id-99">详情</a>
+<script src="/static/js/home.js"></script>
+<script>MacPlayer.Show();</script>
+</body></html>`
+const macV8 = detectFramework(macV8Html, 'https://v8.example.com/')
+assert.ok(macV8, 'should detect MacCMS v8 query routes')
+assert.equal(macV8!.framework, 'maccms')
+console.log('✓ MacCMS v8 fingerprints passed')
+
+const notMacFromVodWord = `<html><body><p>我们讨论 voddetail 这个词</p></body></html>`
+assert.equal(
+  detectFramework(notMacFromVodWord, 'https://blog.example.com/post'),
+  null,
+  'a single vod word must not classify as MacCMS',
+)
+console.log('✓ MacCMS false-positive guard passed')
+
+console.log('Testing SeaCMS deep fingerprints...')
+const seacmsDeepHtml = `<html><body>
+<script src="/js/common.js"></script>
+<script src="/js/play.js"></script>
+<script>seajs.use("player");</script>
+<ul id="play_1"></ul>
+<a href="/include/ajax.php?action=hit&id=12">hit</a>
+<a href="/type/1.html">电影</a>
+</body></html>`
+const seacmsDeep = detectFramework(seacmsDeepHtml, 'https://sea-deep.example.com/')
+assert.ok(seacmsDeep, 'should detect SeaCMS without Powered-by banner')
+assert.equal(seacmsDeep!.framework, 'seacms')
+console.log('✓ SeaCMS deep fingerprints passed')
+
+console.log('Testing FeiFeiCMS deep fingerprints...')
+const ffDeepHtml = `<html><body>
+<script>var Root = "/"; var SitePath = "/"; var ff_player = {};</script>
+<a href="/vod-read-id-1234.html">详情</a>
+<a href="/vod-show-id-1.html">电影</a>
+<a href="/vod-play-id-1234-sid-1-nid-1.html">播放</a>
+</body></html>`
+const ffDeep = detectFramework(ffDeepHtml, 'https://ff-deep.example.com/')
+assert.ok(ffDeep, 'should detect FeiFeiCMS via ff_player and vod-read routes')
+assert.equal(ffDeep!.framework, 'fyfcms')
+console.log('✓ FeiFeiCMS deep fingerprints passed')
+
 // --- WordPress ---
 console.log('Testing WordPress detection...')
 const wpHtml = `<html><head>

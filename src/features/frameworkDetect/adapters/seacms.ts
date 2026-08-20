@@ -11,20 +11,15 @@ const SEACMS_SORT_OPTIONS: FrameworkSortOption[] = [
 /**
  * 海洋CMS (SeaCMS) — 中文视频站常用 CMS。
  *
- * 探测信号：页面中含 `Powered by SeaCMS` / `seacms.js` 引用 /
- *           全局变量 `var player_` 配合 `/js/player` 脚本路径。
+ * 探测：在已拉取 HTML 上对接口路径、播放列表、seajs 等信号打分，
+ * 不依赖页脚 Powered-by（可被模板去掉）。
  *
  * 默认 URL 规则：
  *   分类列表  /type/ID.html       翻页 /type/ID-PAGE.html
  *   搜索      /search.php?searchword={query}
  */
 export function detectSeacms(html: string, pageUrl: string): FrameworkHint | null {
-  const hasSignal =
-    /Powered\s+by\s+SeaCMS/i.test(html) ||
-    /seacms/i.test(html) && /\/js\/player/i.test(html) ||
-    /var\s+player_\w+\s*=/.test(html) && /seacms/i.test(html)
-
-  if (!hasSignal) return null
+  if (scoreSeacms(html) < 6) return null
 
   const base = new URL(pageUrl)
   const themeVariant = detectSeacmsThemeVariant(html)
@@ -41,6 +36,22 @@ export function detectSeacms(html: string, pageUrl: string): FrameworkHint | nul
     searchTemplate: `${base.origin}/search.php?searchword={query}`,
     sortOptions: SEACMS_SORT_OPTIONS,
   }
+}
+
+function scoreSeacms(html: string): number {
+  const signals: Array<[RegExp, number]> = [
+    [/Powered\s+by\s+SeaCMS/i, 8],
+    [/\bseacms\b/i, 4],
+    [/\/include\/ajax\.php\b/i, 5],
+    [/\bseajs\b/i, 4],
+    [/\/js\/play\.js/i, 3],
+    [/\/js\/player/i, 2],
+    [/\bid=["']play_\d+["']/i, 3],
+    [/\/templets\//i, 3],
+    [/\/js\/(?:common|function)\.js/i, 2],
+    [/var\s+player_\w+\s*=/, 2],
+  ]
+  return signals.reduce((sum, [pattern, weight]) => (pattern.test(html) ? sum + weight : sum), 0)
 }
 
 function detectSeacmsThemeVariant(html: string): string | undefined {

@@ -40,6 +40,14 @@ export function frameworkCategoryPageUrl(
 
   if (page <= 0) return catUrl
 
+  // MacCMS / ZanPian 伪静态：/vodtype/2.html → /vodtype/2-2.html
+  if (
+    (hint.framework === 'maccms' || hint.framework === 'zanpian') &&
+    /\/vod(?:type|show)\/\d+\.html$/i.test(new URL(catUrl).pathname)
+  ) {
+    return catUrl.replace(/(\d+)(\.html)$/i, `$1-${pageNum}$2`)
+  }
+
   // wntheme MacCMS / ZanPian: /vodtype/ID/ → /vodtype/ID-PAGE/
   if (
     (hint.framework === 'maccms' || hint.framework === 'zanpian') &&
@@ -59,8 +67,8 @@ export function frameworkCategoryPageUrl(
     return catUrl.replace(/(vod-show-id-\d+)(\.html)$/i, `$1-p-${pageNum}$2`)
   }
 
-  // JEECMS: query-param ?page=N
-  if (hint.framework === 'jeecms') {
+  // JEECMS / 努努影院: query-param ?page=N
+  if (hint.framework === 'jeecms' || hint.framework === 'nnyy') {
     const url = new URL(catUrl)
     url.searchParams.set('page', String(pageNum))
     return url.href
@@ -109,7 +117,8 @@ function frameworkSortedCategoryUrl(
 
 function extractTrailingTypeId(pathname: string): string | null {
   return (
-    pathname.match(/\/vodtype\/(\d+)\/?$/)?.[1] ??
+    pathname.match(/\/vodtype\/(\d+)(?:-\d+)?(?:\.html)?\/?$/i)?.[1] ??
+    pathname.match(/\/vodshow\/(\d+)/i)?.[1] ??
     pathname.match(/\/vod\/type\/id\/(\d+)\.html$/)?.[1] ??
     pathname.match(/\/type\/(\d+)\/?$/)?.[1] ??
     null

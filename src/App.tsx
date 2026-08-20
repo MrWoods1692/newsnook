@@ -1106,6 +1106,7 @@ export default function App() {
               setSettingsRoute(null)
               setTab('me')
             }}
+            onOpenRelated={openArticle}
           />
         </Suspense>
       )}

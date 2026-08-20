@@ -34,6 +34,7 @@ import {
   mediaDescriptorHtml,
   runtimeProbePageUrl,
 } from '../src/features/mediaSniffer/service'
+import { nnyyPlayApiUrls } from '../src/features/mediaSniffer/nnyyPlay'
 
 const pageUrl = 'https://news.example/articles/42'
 
@@ -716,6 +717,28 @@ video/1080.m3u8`
     proxySource,
     /URLDecoder\.decode\([^;]*StandardCharsets/,
     '不得把 Charset 传给 URLDecoder.decode，core-oj 在 minSdk 24 设备上没有该重载',
+  )
+}
+
+{
+  const payload = JSON.stringify({
+    video_plays: [{ play_data: 'https://cdn.example/stream/index.m3u8', src_site: 'lz' }],
+  })
+  const observations = parseMediaApiBody(payload, 'https://nnyy.in/dianying/1.html', 'fetch')
+  assert.equal(
+    bestMediaUrlInPayload(JSON.parse(payload), 'https://nnyy.in/dianying/1.html'),
+    'https://cdn.example/stream/index.m3u8',
+    'nnyy play_data should be recognized as media URL',
+  )
+  assert.ok(observations.some((item) => item.url?.includes('.m3u8')))
+
+  const detailHtml = `<script>
+    var url = '/_gp/{0}/{1}'.replace('{0}', '20252607').replace('{1}', ep_slug);
+    on_ep('hd');
+  </script>`
+  assert.deepEqual(
+    nnyyPlayApiUrls(detailHtml, 'https://nnyy.in/dianying/20252607.html'),
+    ['https://nnyy.in/_gp/20252607/hd'],
   )
 }
 

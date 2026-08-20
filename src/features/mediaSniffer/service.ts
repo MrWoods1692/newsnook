@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core'
 
+import { fetchAbsoluteText } from '../../lib/http'
 import { fetchMediaBytes } from '../../lib/mediaFetch'
 import {
   buildMediaDescriptor,
@@ -9,6 +10,8 @@ import {
   observeMediaInPayload,
 } from './core'
 import { observeMediaInNativePage } from './native'
+import { nnyyPlayApiUrls } from './nnyyPlay'
+import { parseMediaApiBody } from './apiParser'
 import { publicPlaybackHeaders } from './originHeaders'
 import type { MediaDescriptor, MediaObservation } from './types'
 
@@ -116,6 +119,17 @@ export async function discoverMediaDescriptor(options: {
     : options.payload === undefined
       ? []
       : observeMediaInPayload(options.payload, options.pageUrl)
+
+  if (options.html) {
+    for (const apiUrl of nnyyPlayApiUrls(options.html, options.pageUrl)) {
+      try {
+        const body = await fetchAbsoluteText(apiUrl, { signal: options.signal })
+        staticObservations.push(...parseMediaApiBody(body, options.pageUrl, 'fetch'))
+      } catch {
+        // 播放 API 失败时不阻断其他嗅探路径。
+      }
+    }
+  }
 
   const runtimeObservations: MediaObservation[] = []
   let lastEmittedSignature = ''

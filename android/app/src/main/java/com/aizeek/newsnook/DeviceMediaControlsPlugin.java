@@ -135,6 +135,9 @@ public class DeviceMediaControlsPlugin extends Plugin {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE;
         } else if ("portrait".equals(orientation)) {
             requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT;
+        } else if ("sensor".equals(orientation)) {
+            // 跟随设备：横竖屏都放开，由传感器决定（覆盖系统自动旋转开关）
+            requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR;
         } else {
             call.reject("Unsupported orientation");
             return;

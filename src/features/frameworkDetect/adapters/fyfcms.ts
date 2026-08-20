@@ -11,8 +11,7 @@ const FYFCMS_SORT_OPTIONS: FrameworkSortOption[] = [
 /**
  * 飞飞CMS (FYFCMS) — 老牌中文视频 CMS。
  *
- * 探测信号：模板路径含 `/template/feifeicms/` 或 JS 中含 `fyfcms` /
- *           全局变量 `var cms_player`。
+ * 探测：模板路径、`ff_player` / `cms_player`、以及 `vod-read-id` 等飞飞路由。
  *
  * 默认 URL 规则：
  *   分类列表  index.php?s=/vod-show-id-ID.html
@@ -20,12 +19,7 @@ const FYFCMS_SORT_OPTIONS: FrameworkSortOption[] = [
  *   搜索      index.php?s=/vod-search-wd-{query}.html
  */
 export function detectFyfcms(html: string, pageUrl: string): FrameworkHint | null {
-  const hasSignal =
-    /\/template\/feifeicms\//i.test(html) ||
-    /var\s+cms_player\s*=/.test(html) ||
-    /fyfcms/i.test(html) && /ff_url/i.test(html)
-
-  if (!hasSignal) return null
+  if (scoreFyfcms(html) < 6) return null
 
   const base = new URL(pageUrl)
   const themeVariant = detectFyfcmsThemeVariant(html)
@@ -42,6 +36,23 @@ export function detectFyfcms(html: string, pageUrl: string): FrameworkHint | nul
     searchTemplate: `${base.origin}/index.php?s=/vod-search-wd-{query}.html`,
     sortOptions: FYFCMS_SORT_OPTIONS,
   }
+}
+
+function scoreFyfcms(html: string): number {
+  const signals: Array<[RegExp, number]> = [
+    [/\/template\/feifeicms\//i, 8],
+    [/\bvar\s+cms_player\s*=/, 6],
+    [/\bff_player\b/, 6],
+    [/\bfyfcms\b/i, 4],
+    [/\bff_url\b/i, 3],
+    [/\/vod-read-id-\d+/i, 4],
+    [/\/vod-play-id-\d+/i, 4],
+    [/\/vod-show-id-\d+/i, 3],
+    [/\/vod-type-id-\d+/i, 3],
+    [/\bvar\s+Root\s*=/, 2],
+    [/\bvar\s+SitePath\s*=/, 2],
+  ]
+  return signals.reduce((sum, [pattern, weight]) => (pattern.test(html) ? sum + weight : sum), 0)
 }
 
 function detectFyfcmsThemeVariant(html: string): string | undefined {

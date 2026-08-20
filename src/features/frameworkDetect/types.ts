@@ -4,6 +4,7 @@ export type FrameworkId =
   | 'fyfcms'
   | 'jeecms'
   | 'zanpian'
+  | 'nnyy'
   | 'wordpress'
   | 'hugo'
   | 'hexo'

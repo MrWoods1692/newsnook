@@ -36,3 +36,4 @@ artifacts/
 # Git worktrees (local isolation)
 .worktrees/
 third-party/
+logs/

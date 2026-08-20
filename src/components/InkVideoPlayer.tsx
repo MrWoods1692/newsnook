@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react'
+import type { MutableRefObject, PointerEvent as ReactPointerEvent, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type Hls from 'hls.js'
 import {
@@ -33,7 +33,6 @@ import {
   lockVideoScreenOrientation,
   unlockVideoScreenOrientation,
   type LevelControl,
-  type VideoScreenOrientation,
 } from '../lib/deviceMediaControls'
 import {
   clampLevel,
@@ -70,6 +69,42 @@ interface Props {
   onUnlocked?: () => void
   onRefreshSource?: () => void
   onPlaybackError?: () => void
+  /** 宿主页面（阅读器）读取该句柄，让系统返回键在全屏时先退出全屏而不是关文章 */
+  fullscreenHandleRef?: MutableRefObject<InkVideoPlayerFullscreenHandle | null>
+}
+
+/** 宿主页面可读取的全屏句柄：immersive 表示当前是否全屏，exit 请求退出全屏。 */
+export interface InkVideoPlayerFullscreenHandle {
+  immersive: boolean
+  exit: () => void
+}
+
+/** 全屏旋转模式：锁定横屏 / 跟随设备 / 锁定竖屏 */
+type RotationMode = 'landscape' | 'sensor' | 'portrait'
+
+const ROTATION_MODE_LABEL: Record<RotationMode, string> = {
+  landscape: '锁定横屏',
+  sensor: '跟随设备',
+  portrait: '锁定竖屏',
+}
+
+/** 旋转按钮循环：锁定横屏 → 跟随设备 → 锁定竖屏 → 锁定横屏 */
+function nextRotationMode(mode: RotationMode | null): RotationMode {
+  switch (mode) {
+    case 'landscape':
+      return 'sensor'
+    case 'sensor':
+      return 'portrait'
+    default:
+      return 'landscape'
+  }
+}
+
+/** 进入全屏的默认旋转模式：横屏视频锁横屏，竖屏视频跟随设备，未知尺寸不动方向 */
+function defaultRotationMode(width: number, height: number): RotationMode | null {
+  if (width > height) return 'landscape'
+  if (height > width) return 'sensor'
+  return null
 }
 
 function playableFormatForUrl(url: string, format?: Props['format']): NonNullable<Props['format']> {
@@ -93,6 +128,7 @@ type GestureHud =
   | { kind: 'seek'; target: number; offset: number }
   | { kind: 'volume' | 'brightness'; value: number }
   | { kind: 'zoom'; scale: number; rotation: VideoRotation }
+  | { kind: 'mode'; label: string }
 
 interface VideoViewState {
   scale: number
@@ -178,7 +214,7 @@ function formatTime(seconds: number): string {
  *   双击专职播放 / 暂停；上半屏与内嵌一致。
  * - 通用：双指缩放与双指拖动画面；放大后单指手势仍可调进度 / 亮度 / 音量；顶部按钮旋转 / 还原画面。
  */
-export function InkVideoPlayer({ src, poster, title, format, sourcePage, requestHeaders, extraUrls, resources, deferLoad, onUnlocked, onRefreshSource, onPlaybackError }: Props) {
+export function InkVideoPlayer({ src, poster, title, format, sourcePage, requestHeaders, extraUrls, resources, deferLoad, onUnlocked, onRefreshSource, onPlaybackError, fullscreenHandleRef }: Props) {
   const [allowed, setAllowed] = useState(!deferLoad)
   const [selectedResource, setSelectedResource] = useState<MediaResourceDescriptor | null>(null)
   const resourceOptions = useMemo<MediaResourceDescriptor[]>(() => {
@@ -250,10 +286,11 @@ export function InkVideoPlayer({ src, poster, title, format, sourcePage, request
     onSelectResource={setSelectedResource}
     onRefreshSource={onRefreshSource}
     onPlaybackError={onPlaybackError}
+    fullscreenHandleRef={fullscreenHandleRef}
   />
 }
 
-function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHeaders, extraUrls, resources, onSelectResource, onRefreshSource, onPlaybackError }: Props & { onSelectResource?: (resource: MediaResourceDescriptor) => void }) {
+function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHeaders, extraUrls, resources, onSelectResource, onRefreshSource, onPlaybackError, fullscreenHandleRef }: Props & { onSelectResource?: (resource: MediaResourceDescriptor) => void }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -269,7 +306,10 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
   const pinchRef = useRef<PinchState | null>(null)
   const multiTouchRef = useRef(false)
   const videoViewRef = useRef<VideoViewState>(DEFAULT_VIDEO_VIEW)
-  const screenOrientationLockedRef = useRef(false)
+  /** 当前生效的旋转模式；null 表示没有改动过 Activity 方向，退出时无需归还 */
+  const rotationModeRef = useRef<RotationMode | null>(null)
+  /** 始终指向最新的 toggleFullscreen，供返回键句柄在任意时刻调用 */
+  const toggleFullscreenRef = useRef<() => void>(() => {})
   const lastTapRef = useRef(0)
   const showChromeRef = useRef(true)
   const hudTimerRef = useRef<number | null>(null)
@@ -304,6 +344,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
   const [viewport, setViewport] = useState({ width: 0, height: 0 })
   const [mediaSize, setMediaSize] = useState({ width: 0, height: 0 })
   const [viewInteracting, setViewInteracting] = useState(false)
+  const [rotationMode, setRotationMode] = useState<RotationMode | null>(null)
   /** 无原生亮度能力时的兜底压暗层 */
   const [scrim, setScrim] = useState(0)
   const immersive = fullscreen || fallbackFullscreen
@@ -357,18 +398,27 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     setVideoView(next)
   }, [])
 
-  const lockPlayerScreenOrientation = useCallback(
-    async (orientation: VideoScreenOrientation): Promise<boolean> => {
-      const locked = await lockVideoScreenOrientation(orientation)
-      if (locked) screenOrientationLockedRef.current = true
-      return locked
+  /**
+   * 应用旋转模式：原生平台请求 Activity 锁定 / 跟随方向；
+   * 原生生效后清掉 CSS 旋转兜底，避免与 Activity 旋转叠加。
+   */
+  const applyRotationMode = useCallback(
+    async (mode: RotationMode): Promise<boolean> => {
+      rotationModeRef.current = mode
+      setRotationMode(mode)
+      const applied = await lockVideoScreenOrientation(mode)
+      if (applied && videoViewRef.current.rotation !== 0) {
+        updateVideoView(DEFAULT_VIDEO_VIEW)
+      }
+      return applied
     },
-    [],
+    [updateVideoView],
   )
 
   const releasePlayerScreenOrientation = useCallback(async () => {
-    if (!screenOrientationLockedRef.current) return
-    screenOrientationLockedRef.current = false
+    if (rotationModeRef.current == null) return
+    rotationModeRef.current = null
+    setRotationMode(null)
     await unlockVideoScreenOrientation()
   }, [])
 
@@ -878,11 +928,16 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     if (exiting) {
       await releasePlayerScreenOrientation()
       updateVideoView(DEFAULT_VIDEO_VIEW)
-    } else if (mediaSize.width > mediaSize.height) {
-      const locked = await lockPlayerScreenOrientation('landscape')
-      if (locked) updateVideoView(DEFAULT_VIDEO_VIEW)
+    } else {
+      // 默认：横屏视频锁横屏，竖屏视频跟随设备（见 defaultRotationMode）
+      const mode = defaultRotationMode(mediaSize.width, mediaSize.height)
+      if (mode) await applyRotationMode(mode)
     }
     revealControls()
+  }
+
+  toggleFullscreenRef.current = () => {
+    void toggleFullscreen()
   }
 
   const applyRate = (next: number) => {
@@ -964,36 +1019,56 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     const root = rootRef.current
     if (!root) return
     if (!immersive) {
+      // 内嵌态点旋转：先进全屏并套用默认旋转模式，不额外循环
       try {
         await root.requestFullscreen()
       } catch {
         setFallbackFullscreen(true)
       }
-    }
-
-    const targetOrientation: VideoScreenOrientation =
-      viewport.width > viewport.height ? 'portrait' : 'landscape'
-    if (await lockPlayerScreenOrientation(targetOrientation)) {
-      updateVideoView(DEFAULT_VIDEO_VIEW)
+      const mode = defaultRotationMode(mediaSize.width, mediaSize.height)
+      if (mode) await applyRotationMode(mode)
       revealControls()
       return
     }
 
-    const currentView = videoViewRef.current
-    const rotation = normalizeVideoRotation(currentView.rotation + 90)
-    const pan = clampVideoPan(
-      currentView.x,
-      currentView.y,
-      videoSurfaceForRotation(viewport, rotation),
-      mediaSize,
-      currentView.scale,
-    )
-    const next = { ...currentView, ...pan, rotation }
-    updateVideoView(next)
-    showViewHud(next)
+    // 全屏内循环切换旋转模式：锁横 → 跟随设备 → 锁竖
+    const nextMode = nextRotationMode(rotationModeRef.current)
+    const applied = await applyRotationMode(nextMode)
+    showHud({ kind: 'mode', label: ROTATION_MODE_LABEL[nextMode] })
     fadeHud()
+    if (!applied && nextMode !== 'sensor') {
+      // 浏览器没有方向锁定能力：沿用 CSS 旋转兜底
+      const currentView = videoViewRef.current
+      const rotation = normalizeVideoRotation(currentView.rotation + 90)
+      const pan = clampVideoPan(
+        currentView.x,
+        currentView.y,
+        videoSurfaceForRotation(viewport, rotation),
+        mediaSize,
+        currentView.scale,
+      )
+      const next = { ...currentView, ...pan, rotation }
+      updateVideoView(next)
+      showViewHud(next)
+      fadeHud()
+    }
     revealControls()
   }
+
+  // 宿主页面读取该句柄：返回键在全屏时先退出全屏，而不是关闭文章
+  useEffect(() => {
+    if (!fullscreenHandleRef) return
+    const handle: InkVideoPlayerFullscreenHandle = {
+      immersive,
+      exit: () => {
+        if (immersive) toggleFullscreenRef.current()
+      },
+    }
+    fullscreenHandleRef.current = handle
+    return () => {
+      if (fullscreenHandleRef.current === handle) fullscreenHandleRef.current = null
+    }
+  }, [fullscreenHandleRef, immersive])
 
   const pointerPair = () => {
     const pointers = Array.from(activePointersRef.current.values())
@@ -1384,8 +1459,8 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
 
             <button
               type="button"
-              aria-label="切换横竖屏"
-              title="切换横竖屏"
+              aria-label={rotationMode ? `旋转模式：${ROTATION_MODE_LABEL[rotationMode]}，点击切换` : '切换横竖屏'}
+              title={rotationMode ? ROTATION_MODE_LABEL[rotationMode] : '切换横竖屏'}
               onClick={() => void rotateVideoView()}
               className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-paper transition-colors active:bg-paper/15 ${
                 showChrome ? 'pointer-events-auto' : ''
@@ -1733,6 +1808,18 @@ function GestureHudOverlay({ hud, duration }: { hud: GestureHud; duration: numbe
         <span className="text-[10px] leading-none text-paper/55">
           双指缩放/移动 · 单指亮度/音量/进度
         </span>
+      </HudShell>
+    )
+  }
+
+  if (hud.kind === 'mode') {
+    return (
+      <HudShell>
+        <div className="flex items-center gap-2 text-paper">
+          <RotateCw size={16} strokeWidth={1.8} />
+          <span className="text-[13px] leading-none">{hud.label}</span>
+        </div>
+        <span className="text-[10px] leading-none text-paper/55">再次点击切换旋转模式</span>
       </HudShell>
     )
   }

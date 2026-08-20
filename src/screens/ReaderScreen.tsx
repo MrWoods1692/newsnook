@@ -37,7 +37,9 @@ import {
 import type { TranslatedArticleContent, TranslationPrefs } from '../features/translation/types'
 import { fetchCommentCount, supportsComments } from '../features/comments/service'
 import { CommentsDrawer } from '../features/comments/components/CommentsDrawer'
+import { articleFromRelatedLink } from '../features/catalogEngine/toArticles'
 import type { NewsSource } from '../sources/registry'
+import type { InkVideoPlayerFullscreenHandle } from '../components/InkVideoPlayer'
 
 interface Props {
   article: Article
@@ -56,6 +58,8 @@ interface Props {
   onTypographyChange?: (patch: Partial<TypographyPrefs>) => void
   /** 墨水屏菜单「设置」：打开应用设置并保留返回阅读 */
   onOpenSettings?: () => void
+  /** 详情页相关卡片：站内打开，不跳出阅读器 */
+  onOpenRelated?: (article: Article) => void
   /** Android：仅 Wi-Fi 自动加载阅读页媒体 */
   wifiOnlyAutoLoadMedia?: boolean
 }
@@ -76,6 +80,7 @@ export function ReaderScreen({
   fontScale = 1,
   onTypographyChange,
   onOpenSettings,
+  onOpenRelated,
   wifiOnlyAutoLoadMedia = false,
 }: Props) {
   const reduced = useReducedMotion()
@@ -85,10 +90,12 @@ export function ReaderScreen({
   const proseRef = useRef<HTMLDivElement>(null)
   const contentMeasureRef = useRef<HTMLDivElement>(null)
   const prevEinkRef = useRef(einkMode)
+  const videoFullscreenRef = useRef<InkVideoPlayerFullscreenHandle | null>(null)
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [html, setHtml] = useState('')
   const [bodySource, setBodySource] = useState<BodySource | null>(null)
   const [resolvedOriginUrl, setResolvedOriginUrl] = useState<string | undefined>()
+  const [resolvedTitle, setResolvedTitle] = useState<string | undefined>()
   const [error, setError] = useState<string | null>(null)
   const [fromCache, setFromCache] = useState(false)
   const [retryToken, setRetryToken] = useState(0)
@@ -133,6 +140,23 @@ export function ReaderScreen({
   const lastScrollTopRef = useRef(0)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRafRef = useRef(0)
+
+  // 返回键：视频全屏时先退出全屏（回到文章页），而不是直接关闭文章
+  useEffect(() => {
+    if (!overlayCloserRef) return
+    const prev = overlayCloserRef.current
+    overlayCloserRef.current = () => {
+      const handle = videoFullscreenRef.current
+      if (handle?.immersive) {
+        handle.exit()
+        return true
+      }
+      return prev ? prev() : false
+    }
+    return () => {
+      overlayCloserRef.current = prev
+    }
+  }, [overlayCloserRef])
 
   useEffect(() => {
     if (!overlayCloserRef) return
@@ -258,8 +282,31 @@ export function ReaderScreen({
     if (!root || loadState !== 'ready') return
 
     const onClick = (event: MouseEvent) => {
-      if (einkMode) return
       const target = event.target
+      if (!(target instanceof Element)) return
+      const relatedLink = target.closest('a[data-reader-role="related-item"]')
+      if (relatedLink instanceof HTMLAnchorElement) {
+        const href = relatedLink.href
+        if (href && onOpenRelated) {
+          event.preventDefault()
+          event.stopPropagation()
+          const title =
+            relatedLink.getAttribute('data-related-title') ||
+            relatedLink.textContent?.replace(/\s+/g, ' ').trim() ||
+            href
+          const img = relatedLink.querySelector('img')
+          onOpenRelated(
+            articleFromRelatedLink(
+              article,
+              href,
+              title,
+              img?.currentSrc || img?.getAttribute('src') || undefined,
+            ),
+          )
+        }
+        return
+      }
+      if (einkMode) return
       if (!(target instanceof HTMLImageElement)) return
       if (target.classList.contains('async-img-failed')) return
       if (target.getAttribute(DEFERRED_SRC_ATTR) && !target.getAttribute('src')) return
@@ -278,7 +325,7 @@ export function ReaderScreen({
 
     root.addEventListener('click', onClick)
     return () => root.removeEventListener('click', onClick)
-  }, [einkMode, html, loadState, showTranslation, translated])
+  }, [article, einkMode, html, loadState, onOpenRelated, showTranslation, translated])
 
   useEffect(() => {
     setUnlockedMediaUrls([])
@@ -347,6 +394,7 @@ export function ReaderScreen({
     setHtml('')
     setBodySource(null)
     setResolvedOriginUrl(undefined)
+    setResolvedTitle(undefined)
     setFromCache(false)
     resolveArticleBody(
       retryToken > 0 && article.videoUrl
@@ -358,6 +406,7 @@ export function ReaderScreen({
         if (controller.signal.aborted) return
         // 正文与媒体嗅探分开：先显示抽取结果，播放器地址稍后增量补上。
         setHtml(resolved.contentHtml)
+        setResolvedTitle(resolved.title)
         if (resolved.bodySource !== 'video') {
           const cached = saveCachedBody(article, {
             html: resolved.contentHtml,
@@ -372,6 +421,7 @@ export function ReaderScreen({
         setHtml(resolved.contentHtml)
         setBodySource(resolved.bodySource)
         setResolvedOriginUrl(resolved.resolvedOriginUrl)
+        setResolvedTitle(resolved.title)
         setLoadState('ready')
         // 视频稿正文只是占位文案，缓存没有意义
         if (resolved.bodySource !== 'video') {
@@ -457,7 +507,10 @@ export function ReaderScreen({
   const comparing = Boolean(
     showTranslation && translated && translationPrefs.displayMode === 'compare',
   )
-  const displayedTitle = showTranslation && translated && !comparing ? translated.title : article.title
+  const displayedTitle =
+    showTranslation && translated && !comparing
+      ? translated.title
+      : resolvedTitle || article.title
 
   const paged = usePagedReader({
     enabled: einkMode,
@@ -1111,6 +1164,7 @@ export function ReaderScreen({
                     onRefreshSource={() => setRetryToken((value) => value + 1)}
                     deferLoad={!autoLoadMedia}
                     onUnlocked={onUnlockedMedia}
+                    fullscreenHandleRef={videoFullscreenRef}
                   />
                   <InlineArticleAudio
                     rootRef={proseRef}
@@ -1129,6 +1183,7 @@ export function ReaderScreen({
                     deferLoad={!autoLoadMedia}
                     unlockedUrls={unlockedSet}
                     onUnlocked={onUnlockedMedia}
+                    fullscreenHandleRef={videoFullscreenRef}
                   />
                 </>
               )}

@@ -29,6 +29,10 @@ public class MainActivity extends BridgeActivity {
 
     /** 系统开屏一直挂到 WebView 提交首帧，避免撤出后露出默认白底 WebView */
     private volatile boolean webContentReady = false;
+    /** 视频全屏态：系统栏必须持续隐藏。旋转 / 重新获焦后隐藏状态可能被系统复位，需要主动补隐藏 */
+    private volatile boolean videoFullscreenActive = false;
+    /** 自愈重排标志：同一窗口期内只排一次补隐藏，避免叠加（仅主线程读写） */
+    private boolean reHideScheduled = false;
     private int nativeStatusBarDp = 0;
     private int nativeNavBarDp = 0;
     private int nativeLeftInsetDp = 0;
@@ -78,29 +82,57 @@ public class MainActivity extends BridgeActivity {
     }
 
     private void applyFullScreen(boolean fullScreen) {
+        videoFullscreenActive = fullScreen;
+        if (fullScreen) {
+            hideSystemBarsSticky();
+            return;
+        }
+
+        // 退出沉浸态时复位 behavior，避免部分机型 show() 后仍被 transient 策略吃掉
+        Window window = getWindow();
+        if (window == null) return;
+        View decorView = window.getDecorView();
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, decorView);
+        if (controller != null) {
+            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
+            controller.show(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
+        }
+        ViewCompat.requestApplyInsets(decorView);
+    }
+
+    /** 隐藏系统栏并保持 swipe 临时唤回；enter 时不 requestApplyInsets（Pixel 等机会在 insets 回传后把栏又显示出来） */
+    private void hideSystemBarsSticky() {
         Window window = getWindow();
         if (window == null) return;
         View decorView = window.getDecorView();
         WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, decorView);
         if (controller == null) return;
 
-        if (fullScreen) {
+        controller.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
+        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        decorView.post(() -> {
+            if (!videoFullscreenActive) return;
             controller.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
-            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-            // 勿在 enter 时 requestApplyInsets：Pixel 等机会在 insets 回传后把系统栏又显示出来
-            decorView.post(() -> {
-                controller.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
-                controller.setSystemBarsBehavior(
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                );
-            });
-            return;
-        }
+            controller.setSystemBarsBehavior(
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            );
+        });
+    }
 
-        // 退出沉浸态时复位 behavior，避免部分机型 show() 后仍被 transient 策略吃掉
-        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
-        controller.show(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
-        ViewCompat.requestApplyInsets(decorView);
+    /**
+     * 自愈：视频全屏期间若系统栏被任何因素重新显示（旧版 systemUiVisibility 写入、
+     * OEM 旋转 / 焦点复位等），延迟后重藏。延迟是为了不与「swipe 临时唤回」的
+     * 系统自动隐藏互相打架；窗口失焦时不干预。
+     */
+    private void scheduleSelfHealHide() {
+        if (reHideScheduled) return;
+        reHideScheduled = true;
+        getWindow().getDecorView().postDelayed(() -> {
+            reHideScheduled = false;
+            if (!videoFullscreenActive) return;
+            if (!getWindow().getDecorView().hasWindowFocus()) return;
+            hideSystemBarsSticky();
+        }, 500L);
     }
 
     private void applyKeepScreenOn(boolean keepScreenOn) {
@@ -169,6 +201,13 @@ public class MainActivity extends BridgeActivity {
         View decorView = getWindow().getDecorView();
         ViewCompat.setOnApplyWindowInsetsListener(decorView, (v, insets) -> {
             updateNativeInsets(insets);
+            if (
+                videoFullscreenActive
+                    && (insets.isVisible(WindowInsetsCompat.Type.statusBars())
+                        || insets.isVisible(WindowInsetsCompat.Type.navigationBars()))
+            ) {
+                scheduleSelfHealHide();
+            }
             return ViewCompat.onApplyWindowInsets(v, insets);
         });
         updateNativeInsets(null);
@@ -230,6 +269,11 @@ public class MainActivity extends BridgeActivity {
         super.onWindowFocusChanged(hasFocus);
         if (!hasFocus) return;
 
+        // 重新获焦时若仍处视频全屏，系统栏隐藏状态可能已被复位，补一次隐藏
+        if (videoFullscreenActive) {
+            getWindow().getDecorView().post(this::hideSystemBarsSticky);
+        }
+
         // onResume may run before the WebView's surface is visible again. One immediate
         // synthetic touch here; delayed soft kicks from scheduleCompositorWake cover lag.
         WebView webView = getCapacitorWebView();
@@ -237,6 +281,16 @@ public class MainActivity extends BridgeActivity {
             webView.resumeTimers();
             injectNativeInsets();
             wakeWebViewCompositor(webView, true);
+        }
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // manifest 已声明 orientation 等 configChanges，Activity 不重建；
+        // 但部分机型旋转后 insets controller 的隐藏状态会丢，视频全屏期间必须补隐藏
+        if (videoFullscreenActive) {
+            getWindow().getDecorView().post(this::hideSystemBarsSticky);
         }
     }
 

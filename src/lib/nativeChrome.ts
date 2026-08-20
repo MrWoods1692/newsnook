@@ -1,10 +1,10 @@
 import { Capacitor } from '@capacitor/core'
-import { StatusBar, Style } from '@capacitor/status-bar'
 
 import { type ResolvedTheme } from './theme'
 
 type NativeChromeBridge = {
   setFullScreen?: (fullScreen: boolean) => void
+  setSystemTheme?: (theme: string) => void
 }
 
 function isSplashBoot(): boolean {
@@ -33,9 +33,11 @@ export function setNativeFullScreen(fullScreen: boolean): void {
 /**
  * 真机系统栏：边到边 + 透明栏，底色由 Web（splash / AppShell safe-area 条）提供。
  *
- * 注意：@capacitor/status-bar 的 setBackgroundColor 在 API 31 上仍会把状态栏刷成不透明色，
- * 且不会尊重 overlays；若在 setOverlaysWebView(true) 之后调用，会盖住 splash 渐变，
- * 看起来像一条与 #0E0F12 不同的「纯黑」顶栏。因此这里只调 style + overlays。
+ * 边到边与透明栏在 MainActivity.onCreate 建立；这里只负责图标颜色跟随主题。
+ *
+ * 不要走 @capacitor/status-bar：其 setOverlaysWebView（以及插件构造函数）会写
+ * 旧版 systemUiVisibility 标志，与 WindowInsetsController 在 Android 15+（targetSdk 35+）
+ * 互相干扰，会导致视频全屏时状态栏隐藏失效。
  */
 export async function applyNativeChrome(theme: ResolvedTheme): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
@@ -43,22 +45,9 @@ export async function applyNativeChrome(theme: ResolvedTheme): Promise<void> {
   const effective: ResolvedTheme = isSplashBoot() ? 'dark' : theme
 
   try {
-    // Style.Dark = 深色底上的浅色图标
-    await StatusBar.setStyle({ style: effective === 'dark' ? Style.Dark : Style.Light })
-  } catch {
-    // ignore
-  }
-
-  try {
-    // 必须放在最后：把栏保持透明，让 Web 背景透出
-    await StatusBar.setOverlaysWebView({ overlay: true })
-  } catch {
-    // Android 15+ 可能忽略
-  }
-
-  try {
-    if (typeof (window as any).NewsNookNative?.setSystemTheme === 'function') {
-      ;(window as any).NewsNookNative.setSystemTheme(effective)
+    const bridge = nativeChromeBridge()
+    if (bridge?.setSystemTheme) {
+      bridge.setSystemTheme(effective)
     }
   } catch {
     // ignore

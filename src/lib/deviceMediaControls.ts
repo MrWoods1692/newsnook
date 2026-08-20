@@ -12,7 +12,8 @@ interface DeviceMediaControlsPlugin {
   unlockOrientation(): Promise<void>
 }
 
-export type VideoScreenOrientation = 'portrait' | 'landscape'
+/** portrait / landscape 为锁定方向；sensor 跟随设备横竖屏（覆盖系统自动旋转开关） */
+export type VideoScreenOrientation = 'portrait' | 'landscape' | 'sensor'
 
 const DeviceMediaControls = registerPlugin<DeviceMediaControlsPlugin>('DeviceMediaControls')
 
@@ -45,6 +46,16 @@ export async function lockVideoScreenOrientation(
     } catch {
       return false
     }
+  }
+
+  // 浏览器没有「跟随设备」可锁：解锁方向锁即回到系统默认行为，视为成功
+  if (orientation === 'sensor') {
+    try {
+      webScreenOrientation()?.unlock?.()
+    } catch {
+      /* ignore */
+    }
+    return true
   }
 
   const controller = webScreenOrientation()

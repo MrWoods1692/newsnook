@@ -1,4 +1,5 @@
 import { detectMaccms } from './adapters/maccms'
+import { detectNnyy } from './adapters/nnyy'
 import { detectSeacms } from './adapters/seacms'
 import { detectFyfcms } from './adapters/fyfcms'
 import { detectJeecms } from './adapters/jeecms'
@@ -13,6 +14,7 @@ import type { FrameworkHint } from './types'
 export function detectFramework(html: string, pageUrl: string): FrameworkHint | null {
   return (
     detectMaccms(html, pageUrl) ??
+    detectNnyy(html, pageUrl) ??
     detectSeacms(html, pageUrl) ??
     detectFyfcms(html, pageUrl) ??
     detectJeecms(html, pageUrl) ??
