@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 
+import { reduceLiveObservations } from '../src/features/mediaSniffer/liveCandidate'
 import {
   isFloatButtonEligible,
   shouldUseOriginPlayerSurface,
@@ -74,5 +75,32 @@ assert.equal(
   false,
   'resources[0] 为广告时不得亮浮钮',
 )
+
+assert.equal(
+  reduceLiveObservations([
+    {
+      url: 'https://cdn.example/ad/preroll.mp4',
+      pageUrl: 'https://play.example/1',
+      source: 'network',
+      mimeType: 'video/mp4',
+    },
+  ]),
+  null,
+)
+const withHls = reduceLiveObservations([
+  {
+    url: 'https://cdn.example/ad/preroll.mp4',
+    pageUrl: 'https://play.example/1',
+    source: 'network',
+    mimeType: 'video/mp4',
+  },
+  {
+    url: 'https://cdn.example/index.m3u8',
+    pageUrl: 'https://play.example/1',
+    source: 'network',
+  },
+])
+assert.equal(withHls?.type, 'hls')
+assert.equal(withHls?.url, 'https://cdn.example/index.m3u8')
 
 console.log('origin-player-live-sniff tests passed')
