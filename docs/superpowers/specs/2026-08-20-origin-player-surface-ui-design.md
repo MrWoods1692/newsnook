@@ -1,9 +1,9 @@
 # OriginPlayerSurface 阅读器壳对齐（方案 A）
 
 > 日期：2026-08-20  
-> 状态：已实现（`OriginPlayerSurface` 对齐 sniff 占位）  
+> 状态：已实现；外层对齐阅读器 `page-x lg:px-8` + related 卡片圆角/边框；原站 WebView 同步媒体槽 bounds  
 > 前置：`2026-08-20-origin-player-live-sniff-design.md`（行为契约不变）  
-> 范围：仅自建源 Android 原站播放表面的 **React 壳 / 状态 UI**，不改 CMS 页内样式、不改嗅探与切换逻辑
+> 范围：自建源 Android 原站播放表面的 **外层壳 / 状态条 / WebView 槽位对齐**，不改 CMS 页内样式、不改嗅探门槛
 
 ## 1. 问题
 
@@ -17,9 +17,9 @@
 
 | # | 目标 |
 |---|---|
-| G1 | origin 态视觉对齐 `reader-video-sniff-placeholder`：深色 16:9、圆角、可选海报压暗 |
-| G2 | 长说明改为角落状态药丸；失败态对齐嗅探失败短文案 + 次要「打开原文」 |
-| G3 | 「用阅读器播放」样式对齐 `reader-video-sniff-retry`（半透明深底 + 浅描边 + 浅色字） |
+| G1 | 外层与阅读器统一：`page-x lg:px-8`、related 同款圆角边框卡片、状态条 `px-2.5` |
+| G2 | 原站 WebView 对齐媒体槽（bounds + 圆角裁剪）；取消第二层海报占位 |
+| G3 | 状态在槽下：短文案 + 主按钮「用阅读器播放」；失败态短句 +「打开原文」 |
 | G4 | 产品行为零变化：可见原站 WebView、浮钮门槛、切自定义播放、返回键、会话生命周期 |
 
 ### 非目标
@@ -33,25 +33,28 @@
 
 ### 3.1 容器
 
-- 复用或镜像 `.reader-video-sniff-placeholder`：`aspect-ratio: 16/9`、深底 `#0c0d10`（不跟主题 `ink-deep` 昼读变奶油）、`border-radius` 与现有视频槽一致（约 14px）。
-- 有 `poster` 时铺底并压暗（同 `.reader-video-sniff-poster`）。
-- `mode === 'custom'` 时仍整槽挂载 `InkVideoPlayer`；壳样式由播放器自身负责。
+- 外层：`mt-5 page-x lg:px-8`（与封面图一致）。
+- 卡片：`rounded-xl border border-haze bg-ink-raised/80 overflow-hidden`（与相关内容卡片同圆角/边框语言）。
+- 媒体槽：`aspect-video` + 固定深底 `#0c0d10`；**不再**铺海报当第二块画面。
+- Android 原站 WebView 经 `setLiveSessionBounds` 对齐到该槽（含 12px 圆角裁剪）；滚动/缩放时持续同步。
+- `mode === 'custom'` 时槽内挂 `InkVideoPlayer`，隐藏原站 WebView。
 
-### 3.2 状态文案（origin）
+### 3.2 状态条（origin，媒体槽下方）
+
+与相关卡片 body 同级内边距 `px-2.5 py-2.5`（0.625rem）：
 
 | 状态 | 表现 |
 |---|---|
-| 正常、未达浮钮门槛 | 左下角药丸：`原站播放中`（带与嗅探相同的脉冲点） |
-| 已有合格候选 | 左下角药丸改为 `已识别正片`（可去掉脉冲点）；**必须**同时显示右下浮钮 |
-| `sessionError` | 居中短句（现有「原站播放器未能启动」）+ 可选「打开原文」；无浮钮 |
+| 正常、未达浮钮门槛 | 左侧 mono 文案 `原站播放中` + 脉冲点 |
+| 已有合格候选 | 左侧 `已识别正片` + 右侧主按钮「用阅读器播放」 |
+| `sessionError` | 左侧短句 + 次要「打开原文」 |
 
-禁止再显示长段：「原站播放器已打开（可点播、过广告）…」。
+禁止再显示长段说明；禁止在媒体槽内叠第二层海报壳。
 
-### 3.3 浮钮
+### 3.3 浮钮 / 主按钮
 
 - 文案不变：`用阅读器播放`
-- 视觉：对齐 `.reader-video-sniff-retry`（非实心朱红胶囊）
-- 位置：媒体槽内右下（现有 `absolute bottom-3 right-3` 可保留）
+- 视觉：阅读器主操作钮（`rounded-lg bg-cinnabar` + `font-mono text-[11px] text-white`），与付费墙等处一致
 - 显示条件不变：`mode === 'origin' && candidate`
 
 ### 3.4 自定义模式脚注
@@ -62,10 +65,9 @@
 
 | 文件 | 职责 |
 |---|---|
-| `src/components/OriginPlayerSurface.tsx` | 结构调整：海报、药丸、失败栈、浮钮 class |
-| `src/index.css`（可选） | 若不宜硬套 sniff class 名，可加 `reader-origin-player-*` 镜像 sniff 视觉；避免改 sniff 语义 |
-
-优先 **复用** `.reader-video-sniff-*` class，减少重复；仅在语义冲突时新增 origin 专用 class。
+| `src/components/OriginPlayerSurface.tsx` | 卡片壳、状态条、槽位 ref、bounds 同步 |
+| `src/features/mediaSniffer/native.ts` | `setNativeLiveSessionBounds` |
+| `android/.../MediaSnifferPlugin.java` | `setLiveSessionBounds` + 启动时离屏直至 JS 对齐 |
 
 ## 5. 测试与验收
 

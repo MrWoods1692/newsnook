@@ -16,6 +16,13 @@ interface NativeMediaSnifferPlugin {
   startLiveSession(options: { url: string; referrer?: string; sessionId: string }): Promise<void>
   stopLiveSession(options: { sessionId: string }): Promise<void>
   setLiveSessionVisible(options: { visible: boolean }): Promise<void>
+  setLiveSessionBounds(options: {
+    x: number
+    y: number
+    width: number
+    height: number
+    cornerRadius?: number
+  }): Promise<void>
   addListener(
     eventName: 'mediaObservation',
     listener: (event: { sessionId?: string; observation?: MediaObservation }) => void,
@@ -240,6 +247,17 @@ export async function startNativeLiveSniffSession(options: {
 export async function setNativeLiveSessionVisible(visible: boolean): Promise<void> {
   if (Capacitor.getPlatform() !== 'android') return
   await NativeMediaSniffer.setLiveSessionVisible({ visible }).catch(() => undefined)
+}
+
+export async function setNativeLiveSessionBounds(bounds: {
+  x: number
+  y: number
+  width: number
+  height: number
+  cornerRadius?: number
+}): Promise<void> {
+  if (Capacitor.getPlatform() !== 'android') return
+  await NativeMediaSniffer.setLiveSessionBounds(bounds).catch(() => undefined)
 }
 
 function observationIdentity(observation: MediaObservation): string {

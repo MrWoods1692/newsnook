@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react'
+import { X } from 'lucide-react'
 
-import { prepareNativeMediaPlayback, setNativeLiveSessionVisible, startNativeLiveSniffSession } from '../features/mediaSniffer/native'
+import {
+  prepareNativeMediaPlayback,
+  setNativeLiveSessionBounds,
+  setNativeLiveSessionVisible,
+  startNativeLiveSniffSession,
+} from '../features/mediaSniffer/native'
 import { reduceLiveObservations } from '../features/mediaSniffer/liveCandidate'
 import type { MediaDescriptor, MediaObservation } from '../features/mediaSniffer/types'
 import { InkVideoPlayer } from './InkVideoPlayer'
 
 type Mode = 'origin' | 'custom'
+
+/** Match Tailwind `rounded-xl` used by Reader cover / related cards. */
+const SLOT_CORNER_RADIUS_PX = 12
 
 export type OriginPlayerCloseHandle = {
   /** Returns true when the custom layer was closed. */
@@ -37,6 +46,7 @@ export function OriginPlayerSurface({
   const [candidate, setCandidate] = useState<MediaDescriptor | null>(null)
   const [sessionError, setSessionError] = useState<string | null>(null)
   const observationsRef = useRef<MediaObservation[]>([])
+  const slotRef = useRef<HTMLDivElement | null>(null)
 
   useEffect(() => {
     if (!closeHandleRef) return
@@ -88,6 +98,35 @@ export function OriginPlayerSurface({
     }
   }, [pageUrl, referrer])
 
+  useEffect(() => {
+    if (mode !== 'origin') return
+
+    const syncBounds = () => {
+      const el = slotRef.current
+      if (!el) return
+      const rect = el.getBoundingClientRect()
+      void setNativeLiveSessionBounds({
+        x: rect.left,
+        y: rect.top,
+        width: rect.width,
+        height: rect.height,
+        cornerRadius: SLOT_CORNER_RADIUS_PX,
+      })
+    }
+
+    syncBounds()
+    const el = slotRef.current
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncBounds) : null
+    if (el && ro) ro.observe(el)
+    window.addEventListener('scroll', syncBounds, true)
+    window.addEventListener('resize', syncBounds)
+    return () => {
+      ro?.disconnect()
+      window.removeEventListener('scroll', syncBounds, true)
+      window.removeEventListener('resize', syncBounds)
+    }
+  }, [mode, pageUrl])
+
   const openCustom = async () => {
     if (!candidate) return
     await prepareNativeMediaPlayback({
@@ -107,72 +146,84 @@ export function OriginPlayerSurface({
     void setNativeLiveSessionVisible(true)
   }
 
+  const showOriginChrome = mode === 'origin' || Boolean(sessionError)
+
   return (
-    <div className="page-x mt-5">
-      {mode === 'custom' && candidate ? (
-        <div className="relative aspect-video w-full overflow-hidden rounded-[14px] bg-[#0c0d10]">
-          <InkVideoPlayer
-            src={candidate.url}
-            poster={poster}
-            title={title}
-            format={candidate.type}
-            sourcePage={candidate.pageUrl}
-            requestHeaders={candidate.requestHeaders}
-            extraUrls={candidate.relatedUrls}
-            resources={candidate.resources}
-            onRefreshSource={backToOrigin}
-            onPlaybackError={backToOrigin}
-          />
-        </div>
-      ) : (
-        <div
-          className={`reader-video-sniff-placeholder${poster ? ' has-poster' : ''}${sessionError ? ' is-failed' : ''}`}
-          role={sessionError ? 'alert' : 'status'}
-          aria-live="polite"
-        >
-          {poster ? (
-            <img
-              className="reader-video-sniff-poster"
-              src={poster}
-              alt=""
-              loading="eager"
-              decoding="async"
-              referrerPolicy="no-referrer"
+    <div className="mt-5 page-x lg:px-8">
+      <div className="overflow-hidden rounded-xl border border-haze bg-ink-raised/80">
+        <div ref={slotRef} className="relative aspect-video w-full bg-[#0c0d10]">
+          {mode === 'custom' && candidate ? (
+            <InkVideoPlayer
+              src={candidate.url}
+              poster={poster}
+              title={title}
+              format={candidate.type}
+              sourcePage={candidate.pageUrl}
+              requestHeaders={candidate.requestHeaders}
+              extraUrls={candidate.relatedUrls}
+              resources={candidate.resources}
+              onRefreshSource={backToOrigin}
+              onPlaybackError={backToOrigin}
             />
           ) : null}
-
-          {sessionError ? (
-            <div className="reader-video-sniff-failed-stack">
-              <p className="reader-video-sniff-failed-text">{sessionError}</p>
-              {openOriginal && (
-                <button type="button" className="reader-video-sniff-retry" onClick={openOriginal}>
-                  打开原文
-                </button>
-              )}
-            </div>
-          ) : (
-            <span className="reader-video-sniff-pill">
-              {candidate ? null : <span className="reader-video-sniff-dot" />}
-              {candidate ? '已识别正片' : '原站播放中'}
-            </span>
-          )}
-
-          {candidate && !sessionError && (
-            <button
-              type="button"
-              onClick={() => void openCustom()}
-              className="reader-video-sniff-retry absolute bottom-3 right-3 z-10"
-            >
-              用阅读器播放
-            </button>
-          )}
         </div>
-      )}
+
+        {showOriginChrome && (
+          <div className="flex items-center gap-2 px-2.5 py-2.5">
+            {sessionError ? (
+              <>
+                <p className="min-w-0 flex-1 text-[12px] leading-snug text-paper-muted" role="alert">
+                  {sessionError}
+                </p>
+                {openOriginal && (
+                  <button
+                    type="button"
+                    onClick={openOriginal}
+                    className="shrink-0 rounded-lg border border-haze bg-ink px-3 py-1.5 font-mono text-[11px] text-paper-muted hover:text-paper active:scale-95 transition-all"
+                  >
+                    打开原文
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <span className="inline-flex min-w-0 flex-1 items-center gap-1.5 font-mono text-[11px] tracking-[0.04em] text-paper-muted">
+                  {candidate ? null : (
+                    <span className="size-1.5 shrink-0 rounded-full bg-cinnabar-soft animate-pulse" />
+                  )}
+                  <span className="truncate">{candidate ? '已识别正片' : '原站播放中'}</span>
+                </span>
+                {candidate ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => void openCustom()}
+                      className="shrink-0 rounded-lg bg-cinnabar px-3 py-1.5 font-mono text-[11px] font-medium text-white hover:bg-cinnabar-soft active:scale-95 transition-all"
+                    >
+                      用阅读器播放
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openCustom()}
+                      aria-label="关闭原站并使用阅读器播放"
+                      title="关闭原站并使用阅读器播放"
+                      className="shrink-0 rounded-lg p-1.5 text-paper-muted hover:bg-ink hover:text-paper active:scale-95 transition-all"
+                    >
+                      <X size={15} strokeWidth={2} />
+                    </button>
+                  </>
+                ) : null}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
       {mode === 'custom' && (
         <button
           type="button"
           onClick={backToOrigin}
-          className="mt-2 text-[12px] text-paper-muted underline-offset-2 hover:underline"
+          className="mt-2 px-0.5 text-[12px] text-paper-muted underline-offset-2 hover:underline"
         >
           返回原站播放器
         </button>

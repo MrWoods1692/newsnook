@@ -2,10 +2,13 @@ package com.aizeek.newsnook;
 
 import android.annotation.SuppressLint;
 import android.graphics.Color;
+import android.graphics.Outline;
 import android.net.Uri;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
@@ -515,8 +518,35 @@ public class MediaSnifferPlugin extends Plugin {
         getActivity().runOnUiThread(() -> {
             WebView webView = liveWebView;
             if (webView != null) {
-                webView.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
+                webView.setVisibility(visible ? View.VISIBLE : View.GONE);
             }
+            call.resolve();
+        });
+    }
+
+    /**
+     * Align the live origin WebView to the Reader media slot.
+     * Coordinates are CSS pixels relative to the Capacitor WebView viewport
+     * (same space as Element.getBoundingClientRect()).
+     */
+    @PluginMethod
+    public void setLiveSessionBounds(PluginCall call) {
+        Double x = call.getDouble("x");
+        Double y = call.getDouble("y");
+        Double width = call.getDouble("width");
+        Double height = call.getDouble("height");
+        Double cornerRadius = call.getDouble("cornerRadius", 0d);
+        if (x == null || y == null || width == null || height == null) {
+            call.reject("x/y/width/height required");
+            return;
+        }
+        final double cssX = x;
+        final double cssY = y;
+        final double cssW = width;
+        final double cssH = height;
+        final double cssRadius = cornerRadius == null ? 0d : Math.max(0d, cornerRadius);
+        getActivity().runOnUiThread(() -> {
+            applyLiveSessionBoundsOnUi(cssX, cssY, cssW, cssH, cssRadius);
             call.resolve();
         });
     }
@@ -810,16 +840,11 @@ public class MediaSnifferPlugin extends Plugin {
             }
         });
 
-        DisplayMetrics metrics = getActivity().getResources().getDisplayMetrics();
-        int width = metrics.widthPixels;
-        int height = Math.max((int) (width * 9f / 16f), (int) (180 * metrics.density));
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            height,
-            Gravity.TOP
-        );
-        // Keep below typical status + app chrome; JS can refine later.
-        params.topMargin = (int) (56 * metrics.density);
+        // Start off-screen / zero-size until JS syncs to the Reader media slot.
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(1, 1, Gravity.TOP);
+        params.leftMargin = -10000;
+        params.topMargin = 0;
+        webView.setVisibility(View.INVISIBLE);
         root.addView(webView, params);
 
         liveSessionId = sessionId;
@@ -838,6 +863,63 @@ public class MediaSnifferPlugin extends Plugin {
             webView.loadUrl(initialUrl, navigationHeaders);
         }
         call.resolve();
+    }
+
+    private void applyLiveSessionBoundsOnUi(
+        double cssX,
+        double cssY,
+        double cssW,
+        double cssH,
+        double cssRadius
+    ) {
+        WebView webView = liveWebView;
+        FrameLayout host = liveHost;
+        if (webView == null || host == null) return;
+
+        WebView bridgeWebView = getBridge() != null ? getBridge().getWebView() : null;
+        DisplayMetrics metrics = getActivity().getResources().getDisplayMetrics();
+        float density = metrics.density;
+        int width = Math.max(1, Math.round((float) cssW * density));
+        int height = Math.max(1, Math.round((float) cssH * density));
+        int[] hostLoc = new int[2];
+        host.getLocationInWindow(hostLoc);
+        int left;
+        int top;
+        if (bridgeWebView != null) {
+            int[] bridgeLoc = new int[2];
+            bridgeWebView.getLocationInWindow(bridgeLoc);
+            left = (bridgeLoc[0] - hostLoc[0]) + Math.round((float) cssX * density);
+            top = (bridgeLoc[1] - hostLoc[1]) + Math.round((float) cssY * density);
+        } else {
+            left = Math.round((float) cssX * density) - hostLoc[0];
+            top = Math.round((float) cssY * density) - hostLoc[1];
+        }
+
+        boolean onScreen = cssW >= 8 && cssH >= 8
+            && cssY + cssH > 0
+            && cssY < bridgeWebViewHeightCss(bridgeWebView, density);
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height, Gravity.TOP | Gravity.START);
+        params.leftMargin = left;
+        params.topMargin = top;
+        webView.setLayoutParams(params);
+
+        final float radiusPx = (float) cssRadius * density;
+        webView.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View view, Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), radiusPx);
+            }
+        });
+        webView.setClipToOutline(radiusPx > 0.5f);
+
+        if (webView.getVisibility() != View.GONE) {
+            webView.setVisibility(onScreen ? View.VISIBLE : View.INVISIBLE);
+        }
+    }
+
+    private static int bridgeWebViewHeightCss(WebView bridgeWebView, float density) {
+        if (bridgeWebView == null || density <= 0f) return Integer.MAX_VALUE;
+        return Math.round(bridgeWebView.getHeight() / density);
     }
 
     private void stopLiveSessionOnUi(String sessionId) {
