@@ -24,6 +24,9 @@ function nativeChromeBridge(): NativeChromeBridge | undefined {
  * JavascriptInterface 不一定是 typeof === 'function'，只做真值判断。
  */
 export function setNativeFullScreen(fullScreen: boolean): void {
+  if (typeof document !== 'undefined') {
+    document.documentElement.classList.toggle('is-video-fullscreen', fullScreen)
+  }
   const bridge = nativeChromeBridge()
   if (bridge?.setFullScreen) {
     bridge.setFullScreen(fullScreen)

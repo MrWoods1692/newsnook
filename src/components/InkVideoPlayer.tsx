@@ -12,12 +12,17 @@ import {
   Minimize2,
   Pause,
   Play,
-  RefreshCcw,
   RotateCw,
   Scan,
   Sun,
-  Volume2,
+  LockOpen,
+  SkipBack,
+  SkipForward,
+  Battery,
+  Cast,
+  ChevronLeft,
   VolumeX,
+  Volume2,
 } from 'lucide-react'
 
 import {
@@ -321,11 +326,21 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     pending: { kind: 'volume' | 'brightness'; value: number } | null
   }>({ busy: false, pending: null })
 
+  const [clock, setClock] = useState('')
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date()
+      setClock(`${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`)
+    }
+    updateTime()
+    const timer = setInterval(updateTime, 1000)
+    return () => clearInterval(timer)
+  }, [])
   const [playing, setPlaying] = useState(false)
   const [ready, setReady] = useState(false)
   const [fatal, setFatal] = useState<string | null>(null)
   const [hint, setHint] = useState<string | null>(null)
-  const [muted, setMuted] = useState(false)
+  const [, setMuted] = useState(false)
   const [current, setCurrent] = useState(0)
   const [duration, setDuration] = useState(0)
   const [buffered, setBuffered] = useState(0)
@@ -885,13 +900,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     await playWithFallback()
   }
 
-  const toggleMute = () => {
-    const video = videoRef.current
-    if (!video) return
-    video.muted = !video.muted
-    setMuted(video.muted)
-    revealControls()
-  }
+
 
   const onSeekInput = (value: number) => {
     if (!duration) return
@@ -1007,13 +1016,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     showHud({ kind: 'zoom', scale: view.scale, rotation: view.rotation })
   }
 
-  const resetVideoView = () => {
-    updateVideoView(DEFAULT_VIDEO_VIEW)
-    setViewInteracting(false)
-    showViewHud(DEFAULT_VIDEO_VIEW)
-    fadeHud()
-    revealControls()
-  }
+
 
   const rotateVideoView = async () => {
     const root = rootRef.current
@@ -1369,8 +1372,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     seeking,
   })
   const orientedViewport = videoSurfaceForRotation(viewport, videoView.rotation)
-  const viewTransformed = videoView.scale !== 1 || videoView.rotation !== 0
-  const viewLabel = `${Math.round(videoView.scale * 100)}%${videoView.rotation ? ` · ${videoView.rotation}°` : ''}`
+
   showChromeRef.current = showChrome
 
   return (
@@ -1442,45 +1444,35 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
               event.stopPropagation()
               revealControls()
             }}
-            className={`pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-start gap-2 bg-gradient-to-b from-black/75 via-black/30 to-transparent pb-8 pl-[calc(var(--sal,0px)+0.625rem)] pr-[calc(var(--sar,0px)+0.625rem)] transition-opacity duration-200 ${
+            className={`pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-center justify-between bg-gradient-to-b from-black/75 via-black/30 to-transparent pb-8 pl-[calc(var(--sal,0px)+0.625rem)] pr-[calc(var(--sar,0px)+0.625rem)] transition-opacity duration-200 ${
               immersive ? 'pt-[calc(var(--sat,0px)+0.5rem)]' : 'pt-2'
             } ${showChrome ? 'opacity-100' : 'opacity-0'}`}
           >
-            <div className="min-w-0 flex-1 px-1 pt-1.5">
-              <div className="truncate text-[12px] font-medium tracking-[0.01em] text-paper/90">
+            <div className={`flex items-center gap-1 ${showChrome ? 'pointer-events-auto' : ''}`}>
+              {immersive && (
+                <button
+                  type="button"
+                  aria-label="退出全屏"
+                  onClick={(e) => { e.stopPropagation(); void toggleFullscreen(); }}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
+                >
+                  <ChevronLeft size={24} strokeWidth={2} />
+                </button>
+              )}
+              <div className="truncate text-[15px] font-medium tracking-wide text-paper/95 drop-shadow-md">
                 {title || '文章视频'}
               </div>
-              {viewTransformed && (
-                <div className="mt-1 flex items-center gap-1 text-[10px] text-paper/60">
-                  <Scan size={12} strokeWidth={1.8} />
-                  <span className="font-mono">{viewLabel}</span>
-                </div>
-              )}
             </div>
 
-            <button
-              type="button"
-              aria-label={rotationMode ? `旋转模式：${ROTATION_MODE_LABEL[rotationMode]}，点击切换` : '切换横竖屏'}
-              title={rotationMode ? ROTATION_MODE_LABEL[rotationMode] : '切换横竖屏'}
-              onClick={() => void rotateVideoView()}
-              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-paper transition-colors active:bg-paper/15 ${
-                showChrome ? 'pointer-events-auto' : ''
-              }`}
-            >
-              <RotateCw size={18} strokeWidth={1.7} />
-            </button>
-            <button
-              type="button"
-              aria-label="还原画面"
-              title="还原画面"
-              disabled={!viewTransformed}
-              onClick={resetVideoView}
-              className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-paper transition-colors active:bg-paper/15 disabled:opacity-30 ${
-                showChrome ? 'pointer-events-auto' : ''
-              }`}
-            >
-              <RefreshCcw size={17} strokeWidth={1.7} />
-            </button>
+            <div className={`flex items-center gap-3 pr-2 text-paper/90 ${showChrome ? 'pointer-events-auto' : ''}`}>
+              <span className="text-[13px] font-medium tracking-wide drop-shadow-md tabular-nums">{clock}</span>
+              <button className="flex h-8 w-8 items-center justify-center rounded-full active:bg-paper/15">
+                <Cast size={18} strokeWidth={2} />
+              </button>
+              <div className="flex items-center">
+                <Battery size={20} strokeWidth={2} />
+              </div>
+            </div>
           </div>
         )}
 
@@ -1546,126 +1538,158 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
               event.stopPropagation()
               revealControls()
             }}
-            className={`pointer-events-none absolute inset-x-0 bottom-0 z-[3] bg-gradient-to-t from-black/80 via-black/45 to-transparent pl-[calc(var(--sal,0px)+0.75rem)] pr-[calc(var(--sar,0px)+0.75rem)] pt-10 transition-opacity duration-200 ${
+            className={`pointer-events-none absolute inset-x-0 bottom-0 z-[3] bg-gradient-to-t from-black/95 via-black/50 to-transparent pl-[calc(var(--sal,0px)+1rem)] pr-[calc(var(--sar,0px)+1rem)] pt-12 transition-opacity duration-200 ${
               immersive
-                ? 'pb-[calc(var(--sab,0px)+0.625rem)]'
-                : 'pb-2.5'
+                ? 'pb-[calc(var(--sab,0px)+0.5rem)]'
+                : 'pb-1'
             } ${showChrome ? 'opacity-100' : 'opacity-0'}`}
           >
-            <div
-              className={`relative mb-2.5 h-5 touch-none ${
-                showChrome ? 'pointer-events-auto' : ''
-              }`}
-            >
-              <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 overflow-hidden rounded-full bg-paper/20">
-                <div
-                  className="absolute inset-y-0 left-0 bg-paper/35"
-                  style={{ width: `${bufferRatio * 100}%` }}
+            {/* Seek Bar Row */}
+            <div className={`flex items-center gap-3 mb-1 touch-none ${showChrome ? 'pointer-events-auto' : ''}`}>
+              <span className="text-[11px] font-mono tracking-wide text-paper/90 shrink-0 tabular-nums">
+                {formatTime(current)}
+              </span>
+              <div className="relative flex-1 h-5 flex items-center">
+                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[3px] overflow-hidden rounded-full bg-paper/20">
+                  <div
+                    className="absolute inset-y-0 left-0 bg-paper/40"
+                    style={{ width: `${bufferRatio * 100}%` }}
+                  />
+                  <div
+                    className="absolute inset-y-0 left-0 bg-cinnabar"
+                    style={{ width: `${progress * 100}%` }}
+                  />
+                </div>
+                {/* Thumb dot */}
+                <div 
+                  className="absolute top-1/2 -translate-y-1/2 h-3 w-3 -ml-[6px] rounded-full bg-paper shadow pointer-events-none"
+                  style={{ left: `${progress * 100}%` }}
                 />
-                <div
-                  className="absolute inset-y-0 left-0 bg-cinnabar"
-                  style={{ width: `${progress * 100}%` }}
+                <input
+                  type="range"
+                  min={0}
+                  max={duration || 0}
+                  step={0.05}
+                  value={Number.isFinite(current) ? current : 0}
+                  disabled={!duration}
+                  aria-label="播放进度"
+                  className="ink-seek absolute inset-0 w-full cursor-pointer appearance-none bg-transparent"
+                  onPointerDown={() => setScrubbingState(true)}
+                  onPointerUp={(event) => onSeekCommit(Number(event.currentTarget.value))}
+                  onChange={(event) => onSeekInput(Number(event.currentTarget.value))}
+                  onKeyUp={(event) => {
+                    if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                      onSeekCommit(Number(event.currentTarget.value))
+                    }
+                  }}
+                  onClick={(event) => {
+                    onSeekCommit(Number(event.currentTarget.value))
+                  }}
                 />
               </div>
-              <input
-                type="range"
-                min={0}
-                max={duration || 0}
-                step={0.05}
-                value={Number.isFinite(current) ? current : 0}
-                disabled={!duration}
-                aria-label="播放进度"
-                className="ink-seek absolute inset-0 w-full cursor-pointer appearance-none bg-transparent"
-                onPointerDown={() => setScrubbingState(true)}
-                onPointerUp={(event) => onSeekCommit(Number(event.currentTarget.value))}
-                onChange={(event) => onSeekInput(Number(event.currentTarget.value))}
-                onKeyUp={(event) => {
-                  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-                    onSeekCommit(Number(event.currentTarget.value))
-                  }
-                }}
-                onClick={(event) => {
-                  onSeekCommit(Number(event.currentTarget.value))
-                }}
-              />
+              <span className="text-[11px] font-mono tracking-wide text-paper/90 shrink-0 tabular-nums">
+                {formatTime(duration)}
+              </span>
             </div>
 
-            <div className={`flex items-center gap-1 ${showChrome ? 'pointer-events-auto' : ''}`}>
-              <button
-                type="button"
-                aria-label={playing ? '暂停' : '播放'}
-                onClick={() => void togglePlay()}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-paper transition-colors active:bg-paper/15"
-              >
-                {playing ? (
-                  <Pause size={18} strokeWidth={1.7} />
-                ) : (
-                  <Play size={18} strokeWidth={1.7} className="ml-0.5" />
-                )}
-              </button>
-
-              <span className="min-w-[70px] font-mono text-[10px] tracking-wide text-paper/85">
-                {formatTime(current)} / {formatTime(duration)}
-              </span>
-
-              <span className="flex-1" />
-
-              <div className="relative">
+            {/* Controls Row */}
+            <div className={`flex items-center justify-between mt-1 pb-1 ${showChrome ? 'pointer-events-auto' : ''}`}>
+              <div className="flex items-center gap-1 sm:gap-3">
                 <button
                   type="button"
-                  aria-label="播放速度"
-                  aria-expanded={rateMenuOpen}
-                  onClick={() => {
-                    setRateMenuOpen((open) => !open)
-                    revealControls()
-                  }}
-                  className="flex h-12 min-w-12 items-center justify-center rounded-full px-2 font-mono text-[11px] tracking-wide text-paper transition-colors active:bg-paper/15"
+                  aria-label={playing ? '暂停' : '播放'}
+                  onClick={() => void togglePlay()}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper transition-colors active:bg-paper/15"
                 >
-                  {rate}x
+                  {playing ? (
+                    <Pause size={20} strokeWidth={2} fill="currentColor" fillOpacity={0.2} />
+                  ) : (
+                    <Play size={20} strokeWidth={2} className="ml-0.5" fill="currentColor" fillOpacity={0.2} />
+                  )}
                 </button>
-                {rateMenuOpen && (
-                  <div className="absolute bottom-full right-0 mb-2 flex min-w-[64px] flex-col overflow-hidden rounded-xl border border-haze bg-ink-raised/95 shadow-lg">
-                    {PLAYBACK_RATES.map((value) => (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => applyRate(value)}
-                        className={`px-3 py-1.5 text-right font-mono text-[11px] ${
-                          value === rate ? 'text-cinnabar-soft' : 'text-paper/80'
-                        }`}
-                      >
-                        {value}x
-                      </button>
-                    ))}
-                  </div>
-                )}
+                <button
+                  type="button"
+                  onClick={() => onSeekCommit(Math.max(0, current - 15))}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
+                >
+                  <SkipBack size={18} strokeWidth={2} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onSeekCommit(Math.min(duration, current + 15))}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
+                >
+                  <SkipForward size={18} strokeWidth={2} />
+                </button>
+                
+                <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15">
+                  <LockOpen size={17} strokeWidth={2} />
+                </button>
+                <span className="text-[13px] text-paper/80 font-medium px-1 hidden sm:inline-block">片头</span>
+                <span className="text-[13px] text-paper/80 font-medium px-1 hidden sm:inline-block">片尾</span>
+                
+                {/* Rate Menu */}
+                <div className="relative ml-1">
+                  <button
+                    type="button"
+                    aria-label="播放速度"
+                    aria-expanded={rateMenuOpen}
+                    onClick={() => {
+                      setRateMenuOpen((open) => !open)
+                      revealControls()
+                    }}
+                    className="flex h-10 min-w-10 items-center justify-center rounded-full px-2 font-mono text-[13px] tracking-wide text-paper transition-colors active:bg-paper/15"
+                  >
+                    x{Number.isInteger(rate) ? rate.toFixed(1) : rate}
+                  </button>
+                  {rateMenuOpen && (
+                    <div className="absolute bottom-full left-0 mb-2 flex min-w-[64px] flex-col overflow-hidden rounded-xl border border-haze bg-ink-raised/95 shadow-lg">
+                      {PLAYBACK_RATES.map((value) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => applyRate(value)}
+                          className={`px-3 py-1.5 text-center font-mono text-[12px] ${
+                            value === rate ? 'text-cinnabar-soft' : 'text-paper/80'
+                          }`}
+                        >
+                          {value}x
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <button
-                type="button"
-                aria-label={muted ? '取消静音' : '静音'}
-                onClick={toggleMute}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-paper transition-colors active:bg-paper/15"
-              >
-                {muted ? (
-                  <VolumeX size={17} strokeWidth={1.7} />
-                ) : (
-                  <Volume2 size={17} strokeWidth={1.7} />
-                )}
-              </button>
+              <div className="flex items-center gap-1 sm:gap-2 pr-1">
+                <button className="hidden sm:inline-block rounded-full border border-paper/40 px-3 py-1 text-[12px] tracking-wide text-paper/95 whitespace-nowrap">
+                  极速播
+                </button>
+                <span className="hidden sm:inline-block text-[13px] font-medium tracking-wide text-paper/95 whitespace-nowrap px-2">选集</span>
+                
+                <button
+                  type="button"
+                  aria-label={rotationMode ? `旋转模式：${ROTATION_MODE_LABEL[rotationMode]}，点击切换` : '切换横竖屏'}
+                  title={rotationMode ? ROTATION_MODE_LABEL[rotationMode] : '切换横竖屏'}
+                  onClick={() => void rotateVideoView()}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
+                >
+                  <RotateCw size={17} strokeWidth={2} />
+                </button>
 
-              <button
-                type="button"
-                aria-label={immersive ? '退出全屏' : '全屏'}
-                onClick={() => void toggleFullscreen()}
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-paper transition-colors active:bg-paper/15"
-              >
-                {immersive ? (
-                  <Minimize2 size={16} strokeWidth={1.7} />
-                ) : (
-                  <Maximize2 size={16} strokeWidth={1.7} />
-                )}
-              </button>
+                <button
+                  type="button"
+                  aria-label={immersive ? '退出全屏' : '全屏'}
+                  onClick={() => void toggleFullscreen()}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
+                >
+                  {immersive ? (
+                    <Minimize2 size={18} strokeWidth={2} />
+                  ) : (
+                    <Maximize2 size={18} strokeWidth={2} />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         )}

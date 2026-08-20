@@ -54,12 +54,15 @@ public class MainActivity extends BridgeActivity {
         wakeWebViewCompositor(webView, false);
     };
 
+    @androidx.annotation.Keep
     public class NativeThemeBridge {
+        @androidx.annotation.Keep
         @JavascriptInterface
         public void setSystemTheme(String theme) {
             runOnUiThread(() -> applySystemTheme("light".equalsIgnoreCase(theme)));
         }
 
+        @androidx.annotation.Keep
         @JavascriptInterface
         public void setFullScreen(boolean fullScreen) {
             runOnUiThread(() -> applyFullScreen(fullScreen));
@@ -71,6 +74,7 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    @androidx.annotation.Keep
     private void applySystemTheme(boolean isLight) {
         Window window = getWindow();
         if (window == null) return;
@@ -81,42 +85,74 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    @androidx.annotation.Keep
     private void applyFullScreen(boolean fullScreen) {
         videoFullscreenActive = fullScreen;
+        Window window = getWindow();
+        if (window == null) return;
+        
         if (fullScreen) {
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
             hideSystemBarsSticky();
             return;
         }
 
-        // 退出沉浸态时复位 behavior，避免部分机型 show() 后仍被 transient 策略吃掉
-        Window window = getWindow();
-        if (window == null) return;
+        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN);
         View decorView = window.getDecorView();
-        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, decorView);
-        if (controller != null) {
-            controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
-            controller.show(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
+        
+        // 恢复旧版标志位（保持边到边布局）
+        decorView.setSystemUiVisibility(
+            View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+            | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+        );
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_DEFAULT);
+                controller.show(android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.navigationBars());
+            }
+        } else {
+            WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, decorView);
+            if (controller != null) {
+                controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_DEFAULT);
+                controller.show(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
+            }
         }
         ViewCompat.requestApplyInsets(decorView);
     }
 
-    /** 隐藏系统栏并保持 swipe 临时唤回；enter 时不 requestApplyInsets（Pixel 等机会在 insets 回传后把栏又显示出来） */
+    @androidx.annotation.Keep
     private void hideSystemBarsSticky() {
         Window window = getWindow();
         if (window == null) return;
         View decorView = window.getDecorView();
-        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(window, decorView);
-        if (controller == null) return;
+        
+        // 终极杀手锏：无论什么 Android 版本，强行打上旧版沉浸式标志位
+        // 很多国产 ROM（如 MIUI/HyperOS, OriginOS, MagicOS）底层对新 API 响应有 Bug，
+        // 但对这套老标志位绝对服从。
+        int legacyFlags = View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                | View.SYSTEM_UI_FLAG_FULLSCREEN;
+        decorView.setSystemUiVisibility(legacyFlags);
 
-        controller.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
-        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-        decorView.post(() -> {
-            if (!videoFullscreenActive) return;
-            controller.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
-            controller.setSystemBarsBehavior(
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            );
-        });
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            android.view.WindowInsetsController controller = window.getInsetsController();
+            if (controller != null) {
+                controller.hide(android.view.WindowInsets.Type.statusBars() | android.view.WindowInsets.Type.navigationBars());
+                controller.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        } else {
+            WindowInsetsControllerCompat controllerCompat = WindowCompat.getInsetsController(window, decorView);
+            if (controllerCompat != null) {
+                controllerCompat.hide(WindowInsetsCompat.Type.statusBars() | WindowInsetsCompat.Type.navigationBars());
+                controllerCompat.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            }
+        }
     }
 
     /**
@@ -157,6 +193,11 @@ public class MainActivity extends BridgeActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.setStatusBarContrastEnforced(false);
             window.setNavigationBarContrastEnforced(false);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            android.view.WindowManager.LayoutParams lp = window.getAttributes();
+            lp.layoutInDisplayCutoutMode = android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            window.setAttributes(lp);
         }
 
         TranslationPluginRegistrar.register(this);
