@@ -13,6 +13,7 @@ import {
   discoverMediaDescriptor,
   mediaDescriptorHtml,
 } from '../features/mediaSniffer/service'
+import { shouldUseOriginPlayerSurface } from '../features/mediaSniffer/originPlayerGate'
 import { currentProxyRuntime } from '../features/proxy/runtime'
 import { resolveProxyTransport } from '../features/proxy/transport'
 import { appendRelatedCatalogHtml, extractRelatedCatalog } from '../features/catalogEngine/related'
@@ -981,6 +982,58 @@ export async function resolveArticleBody(
   if (article.contentType === 'video') {
     if (article.videoUrl) return buildVideoBody(article)
     if (!article.originUrl) return buildVideoBody(article, 'failed')
+
+    // Android 自建源：原站可见表面 + 持续旁路，不走短时隐藏嗅探自动换 <video>
+    if (
+      shouldUseOriginPlayerSurface({
+        sourceId: article.sourceId,
+        contentType: article.contentType,
+      })
+    ) {
+      const base: ResolvedBody = {
+        contentHtml: sanitizeArticleHtml(
+          (article.summary || article.title)
+            .split(/\n+/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => `<p>${escapeHtml(line)}</p>`)
+            .join(''),
+        ),
+        bodySource: 'video',
+      }
+      if (onMediaResolved) {
+        void fetchAbsoluteText(article.originUrl, {
+          signal,
+          userAgent: pageUserAgentForArticle(article, extraSources),
+        })
+          .then(async (pageHtml) => {
+            onMediaResolved(
+              await withRelatedFromPage(
+                base,
+                pageHtml,
+                article.originUrl,
+                article,
+                extraSources,
+                signal,
+              ),
+            )
+          })
+          .catch(() => onMediaResolved(base))
+        return base
+      }
+      const pageHtml = await fetchAbsoluteText(article.originUrl, {
+        signal,
+        userAgent: pageUserAgentForArticle(article, extraSources),
+      }).catch(() => undefined)
+      return await withRelatedFromPage(
+        base,
+        pageHtml,
+        article.originUrl,
+        article,
+        extraSources,
+        signal,
+      )
+    }
 
     if (onMediaResolved) {
       const base = buildVideoBody(article)

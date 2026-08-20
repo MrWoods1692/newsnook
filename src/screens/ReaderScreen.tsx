@@ -11,6 +11,11 @@ import { InkVideoPlayer } from '../components/InkVideoPlayer'
 import { InlineArticleAudio } from '../components/InlineArticleAudio'
 import { InlineArticleVideos, VideoSniffPlaceholder } from '../components/InlineArticleVideos'
 import { InlineYoutubeEmbeds } from '../components/InlineYoutubeEmbeds'
+import {
+  OriginPlayerSurface,
+  type OriginPlayerCloseHandle,
+} from '../components/OriginPlayerSurface'
+import { shouldUseOriginPlayerSurface } from '../features/mediaSniffer/originPlayerGate'
 import { loadCachedBody, saveCachedBody } from '../lib/bodyCache'
 import { addVolumePageTurnListener, setVolumePageTurnEnabled } from '../lib/volumePageTurn'
 import { useEdgeSwipeBack } from '../hooks/useEdgeSwipeBack'
@@ -91,6 +96,11 @@ export function ReaderScreen({
   const contentMeasureRef = useRef<HTMLDivElement>(null)
   const prevEinkRef = useRef(einkMode)
   const videoFullscreenRef = useRef<InkVideoPlayerFullscreenHandle | null>(null)
+  const originPlayerCloseRef = useRef<OriginPlayerCloseHandle | null>(null)
+  const useOriginSurface = shouldUseOriginPlayerSurface({
+    sourceId: article.sourceId,
+    contentType: article.contentType,
+  })
   const [loadState, setLoadState] = useState<LoadState>('loading')
   const [html, setHtml] = useState('')
   const [bodySource, setBodySource] = useState<BodySource | null>(null)
@@ -146,6 +156,7 @@ export function ReaderScreen({
     if (!overlayCloserRef) return
     const prev = overlayCloserRef.current
     overlayCloserRef.current = () => {
+      if (originPlayerCloseRef.current?.closeCustom()) return true
       const handle = videoFullscreenRef.current
       if (handle?.immersive) {
         handle.exit()
@@ -1068,13 +1079,24 @@ export function ReaderScreen({
               </div>
             )}
 
-            {article.contentType === 'video' && !article.videoUrl && loadState === 'loading' && (
+            {useOriginSurface && (resolvedOriginUrl || article.originUrl) && (
+              <OriginPlayerSurface
+                pageUrl={resolvedOriginUrl || article.originUrl!}
+                referrer={resolvedOriginUrl || article.originUrl}
+                title={article.title}
+                poster={article.image}
+                openOriginal={() => void openOriginal()}
+                closeHandleRef={originPlayerCloseRef}
+              />
+            )}
+
+            {!useOriginSurface && article.contentType === 'video' && !article.videoUrl && loadState === 'loading' && (
               <div data-reader-block className="page-x mt-5">
                 <VideoSniffPlaceholder state="sniffing" poster={article.image} />
               </div>
             )}
 
-            {article.contentType === 'video' && article.videoUrl && loadState === 'ready' && !/<video\b/i.test(displayedHtml) && (
+            {!useOriginSurface && article.contentType === 'video' && article.videoUrl && loadState === 'ready' && !/<video\b/i.test(displayedHtml) && (
               <div data-reader-block className="page-x mt-5">
                 <InkVideoPlayer
                   src={article.videoUrl}

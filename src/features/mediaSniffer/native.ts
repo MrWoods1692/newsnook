@@ -15,6 +15,7 @@ interface NativeMediaSnifferPlugin {
   }>
   startLiveSession(options: { url: string; referrer?: string; sessionId: string }): Promise<void>
   stopLiveSession(options: { sessionId: string }): Promise<void>
+  setLiveSessionVisible(options: { visible: boolean }): Promise<void>
   addListener(
     eventName: 'mediaObservation',
     listener: (event: { sessionId?: string; observation?: MediaObservation }) => void,
@@ -234,6 +235,11 @@ export async function startNativeLiveSniffSession(options: {
     await NativeMediaSniffer.stopLiveSession({ sessionId }).catch(() => undefined)
   }
   return { sessionId, stop }
+}
+
+export async function setNativeLiveSessionVisible(visible: boolean): Promise<void> {
+  if (Capacitor.getPlatform() !== 'android') return
+  await NativeMediaSniffer.setLiveSessionVisible({ visible }).catch(() => undefined)
 }
 
 function observationIdentity(observation: MediaObservation): string {

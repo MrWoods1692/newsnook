@@ -509,6 +509,18 @@ public class MediaSnifferPlugin extends Plugin {
         });
     }
 
+    @PluginMethod
+    public void setLiveSessionVisible(PluginCall call) {
+        boolean visible = call.getBoolean("visible", true);
+        getActivity().runOnUiThread(() -> {
+            WebView webView = liveWebView;
+            if (webView != null) {
+                webView.setVisibility(visible ? android.view.View.VISIBLE : android.view.View.GONE);
+            }
+            call.resolve();
+        });
+    }
+
     static void clearPlaybackContexts() {
         PLAYBACK_CONTEXTS.clear();
     }
