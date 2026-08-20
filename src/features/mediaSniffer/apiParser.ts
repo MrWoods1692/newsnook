@@ -1,4 +1,4 @@
-import { isHttpUrl, mediaFormatFor, normalizedMime } from './classifier'
+import { admitObservation, isHttpUrl, mediaFormatFor, normalizedMime } from './classifier'
 import type { MediaObservation } from './types'
 
 const URL_FIELDS = [
@@ -10,9 +10,16 @@ const URL_FIELDS = [
   'play_data',
   'backupUrl',
   'backup_url',
+  'backup_urls',
   'manifestUrl',
+  'manifest_url',
+  'hlsmanifesturl',
+  'dashmanifesturl',
   'contentUrl',
   'playbackUrl',
+  'video_url',
+  'media_url',
+  'file',
   'src',
 ] as const
 
@@ -113,8 +120,10 @@ function pushObservation(
   const url = resolvedUrl(rawUrl, pageUrl)
   if (!url) return
   const format = mediaFormatFor(url, hints.mimeType, hints.mediaKind ? { mediaKind: hints.mediaKind } : undefined)
-  if (format === 'blob') return
-  observations.push({ url, pageUrl, source, ...hints })
+  if (format === 'unknown' || format === 'blob') return
+  const admitted = admitObservation({ url, pageUrl, source, ...hints })
+  if (!admitted) return
+  observations.push(admitted)
 }
 
 function emitUrlFields(

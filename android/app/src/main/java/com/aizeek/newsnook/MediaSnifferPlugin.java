@@ -137,6 +137,31 @@ public class MediaSnifferPlugin extends Plugin {
               if (observation && typeof observation === 'object') push({ ...observation, fromIframe: true });
             } catch (_) {}
           });
+          const looksMediaUrl = (value) => {
+            const url = String(value || '');
+            if (!url || url.startsWith('blob:')) return url.startsWith('blob:');
+            return /\\.(?:m3u8|mpd|mp4|m4v|webm|mov|flv|mkv|m4a|aac|mp3|ogg|opus|m4s|ts|cmfv|cmfa)(?:[?#]|$)/i.test(url);
+          };
+          const looksLikePlayerJson = (text) => {
+            const trimmed = String(text || '').trim();
+            if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) return false;
+            return /"(?:url|playurl|play_url|manifestUrl|hlsmanifesturl|dashmanifesturl|manifest_url|video_url|media_url|backupUrl|backup_url|file)"\\s*:/i.test(trimmed)
+              || /"(?:video|audio|stream|streams|playinfo|player)"\\s*:/i.test(trimmed);
+          };
+          const triggerPlayback = () => {
+            if (window.__newsnookPlaybackTriggered) return;
+            window.__newsnookPlaybackTriggered = true;
+            try {
+              const playPattern = /play|watch|观看|播放/i;
+              document.querySelectorAll('button,[role="button"],a').forEach((el) => {
+                const text = (el.textContent || '').trim();
+                const href = el.getAttribute('href') || '';
+                if (playPattern.test(text) || /\\/(?:play|watch|vodplay|player|embed)/i.test(href)) {
+                  try { el.click(); } catch (_) {}
+                }
+              });
+            } catch (_) {}
+          };
           const positiveNumber = (value) => {
             const number = Number(value);
             return Number.isFinite(number) && number > 0 ? number : undefined;
@@ -153,11 +178,14 @@ public class MediaSnifferPlugin extends Plugin {
                 .find((item) => typeof item === 'string' && item);
               const mimeType = [value.mimeType, value.contentType, value.mime]
                 .find((item) => typeof item === 'string');
-              if (url) {
+              // 图片 URL（favicon/logo/海报）不是可播放媒体，宽度高度不构成视频信号
+              const pathOnly = String(url).split('?')[0].split('#')[0];
+              const isImagePath = /\\.(?:png|jpe?g|gif|webp|avif|svg|ico|bmp|tiff?)$/i.test(pathOnly);
+              if (url && !isImagePath) {
                 const codecText = `${mimeType || ''} ${typeof value.codecs === 'string' ? value.codecs : ''}`;
                 const width = positiveNumber(value.width);
                 const height = positiveNumber(value.height);
-                const hasVideo = Boolean(width || height || value.qualityLabel || /^video\\//i.test(mimeType || '') || /(?:avc1|av01|hvc1|hev1|vp0?9|vp8)/i.test(codecText));
+                const hasVideo = Boolean(value.qualityLabel || /^video\\//i.test(mimeType || '') || /(?:avc1|av01|hvc1|hev1|vp0?9|vp8)/i.test(codecText));
                 const hasAudio = Boolean(value.audioQuality || value.audioSampleRate || value.audioChannels || /^audio\\//i.test(mimeType || '') || /(?:mp4a|aac|opus|vorbis|ac-3|ec-3)/i.test(codecText));
                 push({
                   source: 'static',
@@ -219,12 +247,14 @@ public class MediaSnifferPlugin extends Plugin {
             inspectPlayerState();
             try {
               for (const entry of performance.getEntriesByType('resource')) {
-                push({ source: 'performance', url: entry.name });
+                if (looksMediaUrl(entry.name)) push({ source: 'performance', url: entry.name });
               }
             } catch (_) {}
           };
           const startDom = () => {
             scan();
+            setTimeout(triggerPlayback, 400);
+            setTimeout(triggerPlayback, 1200);
             try {
               new MutationObserver((records) => records.forEach((record) => {
                 inspect(record.target);
@@ -252,7 +282,7 @@ public class MediaSnifferPlugin extends Plugin {
                   if (!Number.isFinite(reported) || reported <= maxBodyText) {
                     try {
                       const text = await response.clone().text();
-                      if (text && text.length <= maxBodyText) event.bodyText = text;
+                      if (text && text.length <= maxBodyText && looksLikePlayerJson(text)) event.bodyText = text;
                     } catch (_) {}
                   }
                 }
@@ -279,7 +309,7 @@ public class MediaSnifferPlugin extends Plugin {
                     } else {
                       text = this.responseText;
                     }
-                    if (typeof text === 'string' && text.length > 0 && text.length <= maxBodyText) event.bodyText = text;
+                    if (typeof text === 'string' && text.length > 0 && text.length <= maxBodyText && looksLikePlayerJson(text)) event.bodyText = text;
                   }
                 } catch (_) {}
                 push(event);
@@ -303,7 +333,9 @@ public class MediaSnifferPlugin extends Plugin {
             };
           } catch (_) {}
           try {
-            new PerformanceObserver((list) => list.getEntries().forEach((entry) => push({ source: 'performance', url: entry.name }))).observe({ type: 'resource', buffered: true });
+            new PerformanceObserver((list) => list.getEntries().forEach((entry) => {
+              if (looksMediaUrl(entry.name)) push({ source: 'performance', url: entry.name });
+            })).observe({ type: 'resource', buffered: true });
           } catch (_) {}
           window.__newsnookCollectMedia = () => { scan(); return events; };
         })();
@@ -856,9 +888,42 @@ public class MediaSnifferPlugin extends Plugin {
         }
     }
 
+    private static final Set<String> TRACKER_HOST_SUFFIXES = Collections.unmodifiableSet(
+        new HashSet<>(Arrays.asList(
+            "google-analytics.com",
+            "googletagmanager.com",
+            "doubleclick.net",
+            "cloudflareinsights.com",
+            "sentry.io",
+            "hotjar.com",
+            "cnzz.com",
+            "hm.baidu.com"
+        ))
+    );
+
+    private static boolean isTrackerHost(String url) {
+        try {
+            String host = Uri.parse(url).getHost();
+            if (host == null) return false;
+            String lower = host.toLowerCase(Locale.ROOT);
+            if (lower.contains("jsdelivr.net") && url.toLowerCase(Locale.ROOT).contains("disable-devtool")) {
+                return true;
+            }
+            for (String suffix : TRACKER_HOST_SUFFIXES) {
+                if (lower.equals(suffix) || lower.endsWith("." + suffix)) return true;
+            }
+        } catch (RuntimeException ignored) {
+            // malformed URL
+        }
+        return false;
+    }
+
     private static boolean isImmediatelyPlayable(JSONObject event) {
         if (event == null) return false;
         String mime = event.optString("mimeType", "").toLowerCase(Locale.ROOT);
+        String url = event.optString("url", "");
+        String path = url.split("[?#]", 2)[0].toLowerCase(Locale.ROOT);
+        if (mime.startsWith("video/") && path.matches(".*\\.(png|jpe?g|gif|webp|avif|svg|ico)$")) return false;
         return mime.startsWith("video/")
             || mime.startsWith("audio/")
             || mime.contains("mpegurl")
@@ -897,6 +962,7 @@ public class MediaSnifferPlugin extends Plugin {
             String url = event.optString("url", "");
             if (!"GET".equalsIgnoreCase(method)
                 || !isAllowedPageUrl(url)
+                || isTrackerHost(url)
                 || hasMediaExtension(url)
                 || !seen.add(url)) return;
             int count = scheduled.incrementAndGet();

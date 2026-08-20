@@ -1,9 +1,11 @@
 import { parseMediaApiBody } from './apiParser'
 import {
+  admitObservation,
   isByteRangeResource,
   isHttpUrl,
   isLikelyAdMediaUrl,
   logicalMediaUrl,
+  looksMediaUrl,
   MANIFEST_MIMES,
   mediaFingerprint,
   mediaFormatFor,
@@ -32,6 +34,7 @@ interface GraphAsset extends MediaAsset {
   descriptorAudioTracks: MediaTrack[]
   descriptorSubtitles: MediaTrack[]
   observationTimestamps: number[]
+  observationSources: Set<MediaObservation['source']>
 }
 
 interface GroupedObservation {
@@ -101,7 +104,7 @@ export function synthesizeDashMpd(video: MediaAssetTrack, audio: MediaAssetTrack
 </MPD>`
 }
 
-export function admitObservation(
+export function admitSessionObservation(
   observation: MediaObservation,
   sessionNonce: string | undefined,
   networkUrls: Set<string>,
@@ -365,8 +368,35 @@ function emptyAsset(id: string, pageUrl: string): GraphAsset {
     descriptorAudioTracks: [],
     descriptorSubtitles: [],
     observationTimestamps: [],
+    observationSources: new Set(),
     isAd: false,
   }
+}
+
+const STRONG_OBSERVATION_SOURCES = new Set<MediaObservation['source']>([
+  'network',
+  'dom',
+  'fetch',
+  'xhr',
+  'mse',
+])
+
+function isStaticOnlyAsset(asset: GraphAsset): boolean {
+  if (asset.observationSources.size === 0) return false
+  for (const source of asset.observationSources) {
+    if (STRONG_OBSERVATION_SOURCES.has(source)) return false
+  }
+  return asset.observationSources.has('static')
+}
+
+function isStaticOnlyWeakAsset(asset: GraphAsset): boolean {
+  if (!isStaticOnlyAsset(asset)) return false
+  if (asset.manifest) return false
+  const mime = normalizedMime(asset.mimeType)
+  if (mime.startsWith('video/') || mime.startsWith('audio/') || MANIFEST_MIMES.has(mime)) return false
+  const primaryUrl = asset.videos[0]?.url || asset.audios[0]?.url || asset.manifest?.url
+  if (primaryUrl && looksMediaUrl(primaryUrl)) return false
+  return true
 }
 
 function isAudioOnly(asset: GraphAsset): boolean {
@@ -414,7 +444,10 @@ export function buildMediaGraph(
 ): MediaAsset[] {
   const expanded = expandObservations(observations)
   const networkUrls = networkUrlSet(expanded)
-  const admitted = expanded.filter((item) => admitObservation(item, undefined, networkUrls))
+  const admitted = expanded
+    .map((item) => admitObservation(item))
+    .filter((item): item is MediaObservation => item !== null)
+    .filter((item) => admitSessionObservation(item, undefined, networkUrls))
   const grouped = groupRangeObservations(admitted)
   const buckets = new Map<string, GroupedObservation[]>()
   for (const item of grouped) {
@@ -430,6 +463,7 @@ export function buildMediaGraph(
     let score = 0
     for (const member of members) {
       const { observation, url, format } = member
+      asset.observationSources.add(observation.source)
       score = Math.max(score, observationScore(observation, format))
       if (isLikelyAdMediaUrl(url)) asset.isAd = true
       if (observation.timestamp) asset.observationTimestamps.push(observation.timestamp)
@@ -495,6 +529,7 @@ export function buildMediaGraph(
 
 export function selectPlayableAsset(assets: MediaAsset[]): MediaAsset | null {
   const ranked = assets
+    .filter((asset) => !isStaticOnlyWeakAsset(asset as GraphAsset))
     .map((asset) => ({ asset, rank: deliveryRank(asset as GraphAsset) }))
     .filter((item): item is { asset: MediaAsset; rank: number } => item.rank !== null)
     .sort((left, right) => Number(Boolean(left.asset.isAd)) - Number(Boolean(right.asset.isAd))
