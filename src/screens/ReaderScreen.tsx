@@ -22,6 +22,7 @@ import { useEdgeSwipeBack } from '../hooks/useEdgeSwipeBack'
 import { useNetworkStatus } from '../hooks/useNetworkStatus'
 import { usePagedReader } from '../hooks/usePagedReader'
 import { useProgressiveImages } from '../hooks/useProgressiveImages'
+import { useReaderFontPinch } from '../hooks/useReaderFontPinch'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import { revokeBlobUrl } from '../features/proxy/hydrateImages'
 import { deferMediaInHtml, DEFERRED_SRC_ATTR, type DeferredHostPhase } from '../lib/deferReaderMedia'
@@ -150,6 +151,16 @@ export function ReaderScreen({
   const lastScrollTopRef = useRef(0)
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const scrollRafRef = useRef(0)
+
+  const pinchEnabled =
+    !einkMode && loadState === 'ready' && !lightbox && !commentsOpen
+
+  const { hudLabel } = useReaderFontPinch({
+    targetRef: rootRef,
+    fontScale,
+    enabled: pinchEnabled,
+    onCommit: (next) => onTypographyChange?.({ fontScale: next }),
+  })
 
   // 返回键：视频全屏时先退出全屏（回到文章页），而不是直接关闭文章
   useEffect(() => {
@@ -855,6 +866,16 @@ export function ReaderScreen({
       }}
     >
       <style>{`@keyframes reader-in { from { opacity: 0; transform: translateY(24px) } to { opacity: 1; transform: none } }`}</style>
+
+      {hudLabel && (
+        <div
+          className="pointer-events-none absolute left-1/2 top-[40%] z-30 -translate-x-1/2 rounded-full border border-haze bg-ink/92 px-3.5 py-1.5 font-mono text-[12px] text-paper shadow-lg backdrop-blur-md"
+          role="status"
+          aria-live="polite"
+        >
+          {hudLabel}
+        </div>
+      )}
 
       <div
         ref={shellRef}

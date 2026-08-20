@@ -1381,6 +1381,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
       data-theme="dark"
       // 播放器内的横滑属于播放手势，阅读页的滑动返回不应再接管
       data-video-gestures=""
+      data-no-font-pinch=""
       className={`overflow-hidden border border-haze bg-ink-deep ${
         fallbackFullscreen ? 'fixed inset-0 z-[100] border-0' : ''
       } ${
