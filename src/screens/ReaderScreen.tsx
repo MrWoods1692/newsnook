@@ -836,9 +836,10 @@ export function ReaderScreen({
 
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col"
+      className="absolute inset-0 z-30 flex flex-col bg-ink"
       style={{
         paddingTop: 'var(--sat)',
+        paddingBottom: 'var(--sab)',
         animation: reduced ? undefined : 'reader-in 360ms var(--ease-ink) both',
       }}
     >
@@ -1110,7 +1111,7 @@ export function ReaderScreen({
               </div>
             )}
 
-            <div className="page-x pt-6" style={{ paddingBottom: 'calc(var(--sab) + 40px)' }}>
+            <div className="page-x pt-6" style={{ paddingBottom: '40px' }}>
               {loadState === 'loading' && <ReaderSkeleton />}
 
               {loadState === 'error' && (
@@ -1240,7 +1241,7 @@ export function ReaderScreen({
       {einkMode && loadState === 'ready' && !einkMenuOpen && (
         <div
           data-surface="reader-chrome"
-          className="shrink-0 border-t border-haze/40 bg-ink pt-1.5 safe-pb-8"
+          className={`shrink-0 border-t border-haze/40 bg-ink pt-1.5 pb-4`}
         >
           <p className="text-center font-mono text-[11px] tracking-[0.12em] text-paper-faint">
             {paged.pageIndex + 1} / {Math.max(paged.pages.length, 1)}

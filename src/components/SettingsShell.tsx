@@ -20,6 +20,7 @@ export function SettingsShell({ title, caption, action, onBack, children }: Prop
       className="absolute inset-0 z-30 flex flex-col bg-ink"
       style={{
         paddingTop: 'var(--sat)',
+        paddingBottom: 'var(--sab)',
         animation: reduced ? undefined : 'settings-in 320ms var(--ease-ink) both'
       }}
     >
@@ -54,7 +55,7 @@ export function SettingsShell({ title, caption, action, onBack, children }: Prop
       <div
         data-settings-scroll
         className="scroll-hidden min-h-0 flex-1 overflow-y-auto"
-        style={{ paddingBottom: 'calc(var(--sab) + 24px)' }}
+        style={{ paddingBottom: '24px' }}
       >
         <div className="max-w-4xl mx-auto w-full">
           {children}

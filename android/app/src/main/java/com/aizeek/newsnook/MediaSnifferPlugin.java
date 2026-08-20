@@ -773,7 +773,7 @@ public class MediaSnifferPlugin extends Plugin {
             if (finished.get()) return;
             long now = System.currentTimeMillis();
             if (now - startMs >= timeoutMs) {
-                finishSniff(call, webView, root, scriptHandler, networkEvents, pageUrl.get(), finished, sessionNonce, liveProbes);
+                finishSniff(call, webView, root, scriptHandler, networkEvents, initialUrl, finished, sessionNonce, liveProbes);
                 return;
             }
             webView.evaluateJavascript(
@@ -783,11 +783,11 @@ public class MediaSnifferPlugin extends Plugin {
                     long lastHigh = Math.max(parseJsMillis(value), nativeLastHighValueAt.get());
                     long innerNow = System.currentTimeMillis();
                     if (innerNow - startMs >= timeoutMs) {
-                        finishSniff(call, webView, root, scriptHandler, networkEvents, pageUrl.get(), finished, sessionNonce, liveProbes);
+                        finishSniff(call, webView, root, scriptHandler, networkEvents, initialUrl, finished, sessionNonce, liveProbes);
                         return;
                     }
                     if (innerNow - startMs >= MIN_TIMEOUT_MS && lastHigh > 0 && innerNow - lastHigh >= QUIET_MS) {
-                        finishSniff(call, webView, root, scriptHandler, networkEvents, pageUrl.get(), finished, sessionNonce, liveProbes);
+                        finishSniff(call, webView, root, scriptHandler, networkEvents, initialUrl, finished, sessionNonce, liveProbes);
                         return;
                     }
                     webView.postDelayed(pollHolder[0], POLL_INTERVAL_MS);
@@ -796,7 +796,7 @@ public class MediaSnifferPlugin extends Plugin {
         };
         webView.postDelayed(pollHolder[0], POLL_INTERVAL_MS);
         webView.postDelayed(
-            () -> finishSniff(call, webView, root, scriptHandler, networkEvents, pageUrl.get(), finished, sessionNonce, liveProbes),
+            () -> finishSniff(call, webView, root, scriptHandler, networkEvents, initialUrl, finished, sessionNonce, liveProbes),
             timeoutMs
         );
 

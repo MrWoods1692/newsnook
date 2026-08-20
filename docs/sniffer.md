@@ -1133,7 +1133,7 @@ resolveArticleBody
             → OriginHeaderStore exact origin
 ```
 
-运行时 WebView（SniffSession）仅用于当前文章或其播放器嵌入页的一次短时探测，不作为常驻浏览器，也不把媒体字节或登录凭据写入正文缓存。静态 HTML / JSON 与 Android 运行时嗅探始终都跑：静态已经给出可信媒体时仍会启动 SniffSession，在 quiet window（高价值网络/MSE 信号静止约 800ms，且已过最短时长）结束后收集观察，而不是「得到完整候选后立即停止」。正文含 iframe 时最多对 3 个嵌入页与文章页一并探测，全部跑完再交给 Graph 选最优资产。Web 平台无 SniffSession，仅静态 HTML/JSON 观察。
+运行时 WebView（SniffSession）仅用于当前文章或其播放器嵌入页的一次短时探测，不作为常驻浏览器，也不把媒体字节或登录凭据写入正文缓存。静态 HTML / JSON 与 Android 运行时嗅探始终都跑：静态已经给出可信媒体时仍会启动 SniffSession，在 quiet window（高价值网络/MSE 信号静止约 800ms，且已过最短时长）结束后收集观察，而不是「得到完整候选后立即停止」。正文含 iframe 时最多对 3 个嵌入页与文章页一并探测，按目标顺序共享一个全局 deadline；首个目标获得完整预算，后续目标只使用剩余时间。播放器 iframe 的 inline 配置若声明强媒体 URL，即使页面脚本在首次媒体请求前报错，也可在 iframe 文档自身已被当前 SniffSession 加载的前提下进入 Graph；普通跨文档消息仍要求媒体 URL 真实出现在网络观察中。Web 平台无 SniffSession，仅静态 HTML/JSON 观察。
 
 ## 20.2 候选选择与媒体描述
 
