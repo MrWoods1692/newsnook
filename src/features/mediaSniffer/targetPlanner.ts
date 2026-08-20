@@ -19,6 +19,43 @@ function uniqueUrls(urls: string[]): string[] {
   return Array.from(new Set(urls))
 }
 
+function isUsablePlaybackUrl(value: string): boolean {
+  if (!isHttpUrl(value) || /[\s'"`{}<>]/.test(value)) return false
+  return true
+}
+
+function tagAttribute(tag: string, name: string): string | undefined {
+  return tag
+    .match(new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'))
+    ?.slice(1)
+    .find((value): value is string => value !== undefined)
+}
+
+function effectivePageBaseUrl(html: string, pageUrl: string): string {
+  const candidates: string[] = []
+  for (const match of html.matchAll(/<base\b[^>]*>/gi)) {
+    const href = tagAttribute(match[0], 'href')
+    if (href) candidates.push(href)
+  }
+  for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
+    const tag = match[0]
+    const property = (tagAttribute(tag, 'property') || tagAttribute(tag, 'name') || '').toLowerCase()
+    if (property === 'og:url' || property === 'twitter:url') {
+      const content = tagAttribute(tag, 'content')
+      if (content) candidates.push(content)
+    }
+  }
+  for (const candidate of candidates) {
+    try {
+      const absolute = new URL(candidate, pageUrl).href
+      if (isUsablePlaybackUrl(absolute)) return absolute
+    } catch {
+      // Invalid metadata must not prevent resolving URLs against pageUrl.
+    }
+  }
+  return pageUrl
+}
+
 function jsonLdType(record: Record<string, unknown>): string {
   const value = record['@type']
   return Array.isArray(value) ? value.join(' ') : String(value ?? '')
@@ -31,7 +68,7 @@ function collectJsonLdPlaybackUrls(payload: unknown, baseUrl: string, out: strin
     if (typeof value !== 'string' || !value.trim()) return
     try {
       const absolute = new URL(value, baseUrl).href
-      if (isHttpUrl(absolute) && absolute !== baseUrl) out.push(absolute)
+      if (isUsablePlaybackUrl(absolute) && absolute !== baseUrl) out.push(absolute)
     } catch {
       // 无效 URL 直接忽略
     }
@@ -57,6 +94,7 @@ function collectJsonLdPlaybackUrls(payload: unknown, baseUrl: string, out: strin
 export function embeddedPageUrlsInHtml(html: string, pageUrl: string): string[] {
   const urls: string[] = []
   const seen = new Set<string>()
+  const baseUrl = effectivePageBaseUrl(html, pageUrl)
   for (const match of html.matchAll(/<iframe\b[^>]*>/gi)) {
     const tag = match[0]
     const value = tag
@@ -65,7 +103,7 @@ export function embeddedPageUrlsInHtml(html: string, pageUrl: string): string[] 
       .find((item): item is string => item !== undefined)
     if (!value) continue
     try {
-      const url = new URL(value.replace(/&amp;/g, '&'), pageUrl)
+      const url = new URL(value.replace(/&amp;/g, '&'), baseUrl)
       if (!/^https?:$/.test(url.protocol) || seen.has(url.href)) continue
       seen.add(url.href)
       urls.push(url.href)
@@ -83,6 +121,7 @@ export function embeddedPageUrlsInHtml(html: string, pageUrl: string): string[] 
  */
 export function secondaryPlaybackUrlsInHtml(html: string, pageUrl: string): string[] {
   const urls: string[] = []
+  const baseUrl = effectivePageBaseUrl(html, pageUrl)
   for (const match of html.matchAll(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
       const payload: unknown = JSON.parse(match[1])
@@ -91,18 +130,18 @@ export function secondaryPlaybackUrlsInHtml(html: string, pageUrl: string): stri
         : payload && typeof payload === 'object' && (payload as Record<string, unknown>)['@graph'] !== undefined
           ? (payload as Record<string, unknown>)['@graph'] as unknown[]
           : [payload]
-      for (const root of roots) collectJsonLdPlaybackUrls(root, pageUrl, urls)
+      for (const root of roots) collectJsonLdPlaybackUrls(root, baseUrl, urls)
     } catch {
       // 单个无效 JSON-LD 块不影响其他信号
     }
   }
-  const pageOrigin = originOf(pageUrl)
+  const pageOrigin = originOf(baseUrl)
   for (const match of html.matchAll(/<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi)) {
     const value = match[1] ?? match[2] ?? match[3]
     if (!value) continue
     try {
-      const absolute = new URL(value.replace(/&amp;/g, '&'), pageUrl)
-      if (!isHttpUrl(absolute.href) || absolute.href === pageUrl) continue
+      const absolute = new URL(value.replace(/&amp;/g, '&'), baseUrl)
+      if (!isUsablePlaybackUrl(absolute.href) || absolute.href === pageUrl) continue
       if (pageOrigin && originOf(absolute.href) !== pageOrigin) continue
       if (!PLAYBACK_PATH_PATTERN.test(absolute.pathname + absolute.search + absolute.hash)) continue
       urls.push(absolute.href)
@@ -148,16 +187,9 @@ export function planSniffTargets(input: {
   const secondary = input.html
     ? secondaryPlaybackUrlsInHtml(input.html, input.pageUrl)
     : []
-  if (secondary.length) {
-    return secondary.map((url) => ({
-      url,
-      referrer: input.pageUrl,
-      budgetMs: totalTimeoutMs,
-    }))
-  }
-
-  if (iframeUrls.length) {
-    return iframeUrls.map((url) => ({
+  const playbackTargets = uniqueUrls([...iframeUrls, ...secondary])
+  if (playbackTargets.length) {
+    return playbackTargets.map((url) => ({
       url,
       referrer: input.pageUrl,
       budgetMs: totalTimeoutMs,

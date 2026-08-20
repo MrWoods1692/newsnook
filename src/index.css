@@ -663,13 +663,16 @@
   color: var(--color-paper-muted);
 }
 
-.reader-related-grid {
+/* 相关推荐：样式挂在 data-reader-role，避免正文消毒剥掉 class 后退化成文字链接 */
+.reader-prose [data-reader-role='related'] .reader-related-grid,
+.reader-prose [data-reader-role='related-grid'] {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.75rem;
 }
 
-.reader-related-card {
+.reader-prose [data-reader-role='related'] a.reader-related-card,
+.reader-prose a[data-reader-role='related-item'] {
   display: block;
   overflow: hidden;
   border: 1px solid color-mix(in oklab, var(--color-haze) 50%, transparent);
@@ -677,38 +680,54 @@
   background: color-mix(in oklab, var(--color-paper) 5%, transparent);
   color: var(--color-paper);
   text-decoration: none;
+  border-bottom: none;
+  overflow-wrap: normal;
+  word-break: normal;
   transition:
     border-color 0.2s ease,
     background-color 0.2s ease;
 }
 
-.reader-related-card:hover {
+.reader-prose [data-reader-role='related'] a.reader-related-card:hover,
+.reader-prose a[data-reader-role='related-item']:hover {
   border-color: color-mix(in oklab, var(--color-cinnabar) 30%, transparent);
   background: color-mix(in oklab, var(--color-paper) 10%, transparent);
+  color: var(--color-paper);
 }
 
-.reader-related-card__media {
+.reader-prose [data-reader-role='related'] .reader-related-card__media,
+.reader-prose [data-reader-role='related-media'] {
   aspect-ratio: 16 / 10;
   overflow: hidden;
   background: var(--color-ink);
+  width: 100%;
 }
 
-.reader-related-card__media--empty {
+.reader-prose [data-reader-role='related'] .reader-related-card__media--empty,
+.reader-prose [data-reader-role='related-media'][data-empty='true'] {
   background: color-mix(in oklab, var(--color-haze) 35%, var(--color-ink));
 }
 
-.reader-related-card__media img {
+.reader-prose [data-reader-role='related'] .reader-related-card__media img,
+.reader-prose [data-reader-role='related-media'] img {
   display: block;
   width: 100%;
+  max-width: none;
   height: 100%;
+  min-height: 0;
+  margin: 0;
+  border-radius: 0;
   object-fit: cover;
+  cursor: default;
 }
 
-.reader-related-card__body {
+.reader-prose [data-reader-role='related'] .reader-related-card__body,
+.reader-prose [data-reader-role='related-body'] {
   padding: 0.625rem;
 }
 
-.reader-related-card__title {
+.reader-prose [data-reader-role='related'] .reader-related-card__title,
+.reader-prose [data-reader-role='related-title'] {
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -716,6 +735,7 @@
   font-size: 13px;
   font-weight: 500;
   line-height: 1.35;
+  color: var(--color-paper);
 }
 
 /* 阅读页大标题跟随正文字号缩放 */

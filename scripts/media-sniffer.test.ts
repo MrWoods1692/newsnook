@@ -958,4 +958,36 @@ const maccmsDetailHtml = `<!DOCTYPE html>
   }], '无 JSON-LD 播放页时 iframe 也应成为独立嗅探目标')
 }
 
+{
+  const pageUrl = 'https://vod.example/vodplay/1-1-1.html'
+  const html = `<script type="application/ld+json">{"@type":"VideoObject","embedUrl":"https://canonical.example/vodplay/1-1-1.html"}</script>
+    <iframe src="/Player/ec?episode=1-1-1"></iframe>
+    <a href="/vodplay/'+U+'">模板占位</a>
+    <a href="/vodplay/1-1-2.html">下一集</a>`
+  const targets = planSniffTargets({
+    pageUrl,
+    html,
+    staticObservations: [],
+    totalTimeoutMs: 9000,
+  })
+  assert.deepEqual(
+    targets.map((target) => target.url),
+    [
+      'https://vod.example/Player/ec?episode=1-1-1',
+      'https://canonical.example/vodplay/1-1-1.html',
+      'https://vod.example/vodplay/1-1-2.html',
+    ],
+    '存在 iframe 播放器时必须优先探测 iframe；模板占位链接不能污染嗅探队列',
+  )
+}
+
+{
+  const html = '<meta property="og:url" content="https://redirected.example/vodplay/1-1-1.html"><iframe src="/Player/ec?episode=1-1-1"></iframe>'
+  assert.deepEqual(
+    embeddedPageUrlsInHtml(html, 'https://original.example/vodplay/1-1-1.html'),
+    ['https://redirected.example/Player/ec?episode=1-1-1'],
+    '页面发生域名重定向时，相对 iframe 必须按 HTML 的有效站点基址解析',
+  )
+}
+
 console.log('media-sniffer tests passed')

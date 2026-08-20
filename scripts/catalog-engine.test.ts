@@ -10,6 +10,7 @@ import { extractJsonLdCatalog } from '../src/features/catalogEngine/extractors/j
 import {
   appendRelatedCatalogHtml,
   extractRelatedCatalog,
+  relatedCatalogHtml,
 } from '../src/features/catalogEngine/related'
 import { extractWebCatalogDetailMeta } from '../src/features/catalogEngine/detailMeta'
 import { buildCatalogPageUrl, catalogUsesOffsetPaging } from '../src/features/catalogEngine/pagination'
@@ -159,8 +160,10 @@ assert.equal(unchanged, '<p>正文</p>')
 
 const sanitizedRelated = sanitizeArticleHtml(withRelated)
 assert.match(sanitizedRelated, /data-reader-role="related"/)
-assert.match(sanitizedRelated, /reader-related-card__media/)
-assert.match(sanitizedRelated, /reader-related-card__title/)
+assert.match(sanitizedRelated, /data-reader-role="related-grid"/)
+assert.match(sanitizedRelated, /data-reader-role="related-item"/)
+assert.match(sanitizedRelated, /data-reader-role="related-media"/)
+assert.match(sanitizedRelated, /data-reader-role="related-title"/)
 assert.match(sanitizedRelated, /vod\/detail\/id\/2\.html/)
 
 assert.match(sanitizedRelated, /data-related-title="Related two"/)
@@ -189,6 +192,30 @@ assert.equal(yuting!.image, 'https://img.example.com/poster.jpg')
 const jiumen = ds3Items.find((item) => item.originUrl.includes('201103'))
 assert.equal(jiumen?.title, '九门')
 assert.equal(jiumen?.image, 'https://img.example.com/9.jpg')
+
+console.log('Testing MacCMS lazy-load cover (src placeholder + data-src)...')
+const LAZY_CARD = `
+<a class="public-list-exp" href="/voddetail/201103.html" title="九门">
+  <img class="lazy" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="九门封面图" data-src="https://static.example.com/piccdn/jiu_men.png" />
+</a>
+<a class="time-title" href="/voddetail/201103.html" title="九门">九门</a>
+<a class="public-list-exp" href="/voddetail/201673.html" title="花开锦绣">
+  <img class="lazy" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="https://static.example.com/piccdn/hua.png" />
+</a>
+<a class="time-title" href="/voddetail/201673.html">花开锦绣</a>
+<a class="public-list-exp" href="/voddetail/201260.html" title="天才，女友">
+  <img class="lazy" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="https://static.example.com/piccdn/tian.png" />
+</a>
+<a class="time-title" href="/voddetail/201260.html">天才，女友</a>
+`
+const lazyItems = extractHeuristicCardCatalog(LAZY_CARD, 'https://huarenok.com/voddetail/201001.html')
+assert.equal(lazyItems.length >= 3, true, 'lazy cards should extract')
+const lazyJiumen = lazyItems.find((item) => item.originUrl.includes('201103'))
+assert.equal(lazyJiumen?.title, '九门')
+assert.equal(lazyJiumen?.image, 'https://static.example.com/piccdn/jiu_men.png')
+const lazyRelated = extractRelatedCatalog(LAZY_CARD, 'https://huarenok.com/voddetail/201001.html')
+assert.equal(lazyRelated[0]?.image?.startsWith('https://'), true, 'related cards keep https covers')
+assert.match(relatedCatalogHtml(lazyRelated), /referrerpolicy="no-referrer"/)
 
 console.log('Testing nnyy detail meta + related cards...')
 const NNYY_DETAIL = `<html><head><title>《窥欲者》全集在线观看 - 电影 - 努努影院</title></head><body>

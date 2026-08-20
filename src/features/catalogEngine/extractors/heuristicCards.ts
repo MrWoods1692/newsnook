@@ -30,22 +30,38 @@ function attrValue(attrs: string, name: string): string | undefined {
   return match?.slice(1).find(Boolean)?.trim()
 }
 
+/** MacCMS / 懒加载常见：src 先放 1×1 data URI 或空白图，真图在 data-src。 */
+function isPlaceholderImageSrc(src: string): boolean {
+  const value = src.trim().toLowerCase()
+  if (!value) return true
+  if (value.startsWith('data:')) return true
+  return /(?:^|[/?&=._-])(?:placeholder|blank|spacer|transparent|lazy|loading|pixel|1x1)(?:[/?&=._-]|$)/i.test(
+    value,
+  )
+}
+
 function pickImage(inner: string, baseUrl: string): string | undefined {
   for (const match of inner.matchAll(/<img\b[^>]*>/gi)) {
     const tag = match[0]
-    const src =
-      attrValue(tag, 'src') ||
-      attrValue(tag, 'data-src') ||
-      attrValue(tag, 'data-original') ||
-      attrValue(tag, 'data-lazy-src')
-    if (src) {
-      const abs = absoluteUrl(src, baseUrl)
+    // Prefer lazy-load attrs over src: many CMS pages put a data: GIF in src.
+    const candidates = [
+      attrValue(tag, 'data-src'),
+      attrValue(tag, 'data-original'),
+      attrValue(tag, 'data-lazy-src'),
+      attrValue(tag, 'data-url'),
+      attrValue(tag, 'src'),
+    ]
+    for (const candidate of candidates) {
+      if (!candidate || isPlaceholderImageSrc(candidate)) continue
+      const abs = absoluteUrl(candidate, baseUrl)
       if (abs) return abs
     }
   }
 
   for (const match of inner.matchAll(/background-image:\s*url\((['"]?)([^'")]+)\1\)/gi)) {
-    const abs = absoluteUrl(match[2] ?? '', baseUrl)
+    const raw = match[2] ?? ''
+    if (isPlaceholderImageSrc(raw)) continue
+    const abs = absoluteUrl(raw, baseUrl)
     if (abs) return abs
   }
 

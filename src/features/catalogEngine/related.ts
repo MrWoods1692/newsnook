@@ -94,12 +94,12 @@ export function relatedCatalogHtml(items: CatalogItem[]): string {
       const href = escapeHtml(item.originUrl)
       const title = escapeHtml(item.title)
       const media = item.image
-        ? `<div class="reader-related-card__media"><img src="${escapeHtml(item.image)}" alt="" loading="lazy"></div>`
-        : `<div class="reader-related-card__media reader-related-card__media--empty" aria-hidden="true"></div>`
-      return `<a href="${href}" class="reader-related-card" data-reader-role="related-item" data-related-title="${title}">${media}<div class="reader-related-card__body"><span class="reader-related-card__title">${title}</span></div></a>`
+        ? `<div class="reader-related-card__media" data-reader-role="related-media"><img src="${escapeHtml(item.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-reader-role="related-image"></div>`
+        : `<div class="reader-related-card__media reader-related-card__media--empty" data-reader-role="related-media" data-empty="true" aria-hidden="true"></div>`
+      return `<a href="${href}" class="reader-related-card" data-reader-role="related-item" data-related-title="${title}">${media}<div class="reader-related-card__body" data-reader-role="related-body"><span class="reader-related-card__title" data-reader-role="related-title">${title}</span></div></a>`
     })
     .join('')
-  return `<section data-reader-role="related"><h2>相关内容</h2><div class="reader-related-grid">${cards}</div></section>`
+  return `<section data-reader-role="related"><h2>相关内容</h2><div class="reader-related-grid" data-reader-role="related-grid">${cards}</div></section>`
 }
 
 export function appendRelatedCatalogHtml(contentHtml: string, items: CatalogItem[]): string {

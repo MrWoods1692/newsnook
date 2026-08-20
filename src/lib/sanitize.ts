@@ -206,6 +206,7 @@ export function sanitizeArticleHtml(html: string): string {
       'data-media-pending',
       'data-source-page',
       'data-related-title',
+      'data-empty',
     ],
     FORBID_TAGS: ['style', 'script', 'form', 'input', 'button'],
     FORBID_ATTR: ['style', 'class', 'align', 'bgcolor'],
