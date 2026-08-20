@@ -96,14 +96,17 @@ public class MediaSnifferPlugin extends Plugin {
           const inspectedPayloads = new WeakSet();
           const inspectedScripts = new WeakSet();
           const isHighValue = (event) => {
+            // Progressive mp4/webm often arrives as preroll. Arming quiet-exit on
+            // it ends the session before the real HLS/DASH request. Only
+            // manifests, MSE, and player JSON count as completion signals.
             if (!event || event.source === 'performance') return false;
             const mime = String(event.mimeType || event.mseMimeType || '').toLowerCase();
-            if (/^(video|audio)\\//.test(mime)) return true;
+            const url = String(event.url || '').toLowerCase();
             if (mime.includes('mpegurl') || mime.includes('dash+xml') || mime.includes('vnd.apple.mpegurl')) return true;
+            if (/\\.(?:m3u8|mpd)(?:[?#]|$)/.test(url)) return true;
             if (event.source === 'mse' && event.mseMimeType) return true;
-            if (event.source === 'dom' && event.url) return true;
-            if (event.source === 'static' && event.url && looksMediaUrl(event.url)) return true;
             if ((event.source === 'fetch' || event.source === 'xhr') && event.bodyText && looksLikePlayerJson(event.bodyText)) return true;
+            if (event.source === 'static' && event.url && /\\.(?:m3u8|mpd)(?:[?#]|$)/i.test(String(event.url))) return true;
             return false;
           };
           const push = (event) => {
@@ -917,7 +920,10 @@ public class MediaSnifferPlugin extends Plugin {
                     }
                 }
                 if (headers.length() > 0) event.put("requestHeaders", headers);
-                if (observationPriority(event) >= 3 && lastHighValueAt != null) {
+                // Quiet-exit only for manifests. Progressive video/audio is still
+                // recorded at priority 3 for retention, but must not end the session
+                // while a preroll may still be playing.
+                if (isManifestHighValue(event) && lastHighValueAt != null) {
                     lastHighValueAt.set(System.currentTimeMillis());
                 }
                 appendPrioritized(events, event);
@@ -1028,7 +1034,9 @@ public class MediaSnifferPlugin extends Plugin {
                             if (result.mimeType.startsWith("audio/")) event.put("mediaKind", "audio");
                             else if (result.mimeType.startsWith("video/")) event.put("mediaKind", "video");
                         }
-                        lastHighValueAt.set(System.currentTimeMillis());
+                        if (isManifestHighValue(event)) {
+                            lastHighValueAt.set(System.currentTimeMillis());
+                        }
                         emitter.emit(event);
                     } catch (JSONException | RuntimeException ignored) {
                         // One URL must not block or cancel the other request tasks.
@@ -1088,6 +1096,15 @@ public class MediaSnifferPlugin extends Plugin {
         if (url.matches(".*\\.(m4s|ts)(?:[?#].*)?$")) return 1;
         if (url.matches(".*\\.(js|css|html?|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf)(?:[?#].*)?$")) return 0;
         return 2;
+    }
+
+    private static boolean isManifestHighValue(JSONObject event) {
+        if (event == null) return false;
+        String mime = event.optString("mimeType", "").toLowerCase(Locale.ROOT);
+        String url = event.optString("url", "").toLowerCase(Locale.ROOT);
+        return mime.contains("mpegurl")
+            || mime.contains("dash+xml")
+            || url.matches(".*\\.(m3u8|mpd)(?:[?#].*)?$");
     }
 
     private static boolean isSkippableStaticAsset(String url) {
@@ -1193,13 +1210,16 @@ public class MediaSnifferPlugin extends Plugin {
                 String url = event.optString("url", "");
                 String frameUrl = event.optString("pageUrl", "");
                 boolean loadedFrame = !frameUrl.isEmpty() && networkUrls.contains(frameUrl);
-                boolean staticMedia = "static".equals(event.optString("source", ""))
-                    && inferredMimeType(url) != null;
-                // A player may publish its manifest in inline configuration and
-                // fail before requesting it (for example after a page JS error).
-                // Trust that declaration only when the iframe document itself
-                // was loaded in this session and the URL has a strong media type.
-                if (url.isEmpty() || (!networkUrls.contains(url) && !(loadedFrame && staticMedia))) continue;
+                String source = event.optString("source", "");
+                String inferred = inferredMimeType(url);
+                boolean strongManifest = inferred != null
+                    && (inferred.contains("mpegurl") || inferred.contains("dash+xml"));
+                boolean staticMedia = "static".equals(source) && inferred != null;
+                // A player may publish its manifest in inline configuration / DOM
+                // and only request it after preroll. Trust HLS/DASH when the iframe
+                // document itself was loaded; progressive still needs static config
+                // or a real network hit.
+                if (url.isEmpty() || (!networkUrls.contains(url) && !(loadedFrame && (strongManifest || staticMedia)))) continue;
             }
             event.remove("sessionNonce");
             trusted.put(event);

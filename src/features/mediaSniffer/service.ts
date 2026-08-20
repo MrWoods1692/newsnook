@@ -92,12 +92,15 @@ export async function discoverMediaDescriptor(options: {
 
   const runtimeObservations: MediaObservation[] = []
   let lastEmittedSignature = ''
-  const emitAvailableDescriptor = () => {
+  const emitAvailableDescriptor = (allowProgressive: boolean) => {
     if (!options.onDescriptor) return
     const descriptor = buildMediaDescriptor(
       mergeObservationSources(staticObservations, runtimeObservations),
     )
     if (!descriptor || descriptor.resources?.[0]?.isAd) return
+    // Preroll progressive often arrives first; publishing it mid-sniff replaces
+    // the player with a short ad and aborts waiting for the real manifest.
+    if (!allowProgressive && descriptor.type === 'progressive') return
     const signature = descriptorSignature(descriptor)
     if (signature === lastEmittedSignature) return
     lastEmittedSignature = signature
@@ -107,7 +110,7 @@ export async function discoverMediaDescriptor(options: {
       // A UI subscriber must not cancel the underlying discovery lifecycle.
     }
   }
-  emitAvailableDescriptor()
+  emitAvailableDescriptor(true)
   const observe = options.observeNative ?? (Capacitor.isNativePlatform() ? observeMediaInNativePage : undefined)
   if (options.runtime !== false && observe) {
     const sniffTargets = planSniffTargets({
@@ -131,14 +134,14 @@ export async function discoverMediaDescriptor(options: {
           const admitted = admitObservation(observation)
           if (!admitted) return
           runtimeObservations.push(admitted)
-          emitAvailableDescriptor()
+          emitAvailableDescriptor(false)
         },
       ).catch(() => [])
       for (const observation of observations) {
         const admitted = admitObservation(observation)
         if (admitted) runtimeObservations.push(admitted)
       }
-      emitAvailableDescriptor()
+      emitAvailableDescriptor(false)
     }
   }
 

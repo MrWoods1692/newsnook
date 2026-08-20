@@ -594,6 +594,24 @@ video/1080.m3u8`
     true,
     '已加载 iframe 文档中的 inline HLS 地址不要求自身先产生网络请求',
   )
+  assert.equal(
+    admitSessionObservation(
+      { url: inlineManifest, pageUrl: iframePage, source: 'dom', fromIframe: true },
+      undefined,
+      iframeNetwork,
+    ),
+    true,
+    '已加载 iframe 中 DOM/播放器声明的 HLS 在预告片结束前也应保留',
+  )
+  assert.equal(
+    admitSessionObservation(
+      { url: 'https://cdn.example/preroll.mp4', pageUrl: iframePage, source: 'dom', fromIframe: true, mimeType: 'video/mp4' },
+      undefined,
+      iframeNetwork,
+    ),
+    false,
+    'iframe DOM 里的 progressive 仍要求真实网络命中，避免把预告片配置当正文',
+  )
   const graph = buildMediaGraph([
     { url: 'https://cdn.example/real.mp4', pageUrl, source: 'network', mimeType: 'video/mp4' },
     { url: 'https://evil.example/iframe-only.mp4', pageUrl, source: 'static', fromIframe: true, mimeType: 'video/mp4' },
@@ -610,6 +628,20 @@ video/1080.m3u8`
     true,
     '已加载 iframe 文档中的 inline HLS 地址应进入媒体图',
   )
+}
+
+{
+  const iframePage = 'https://player.example/ec?episode=1'
+  const adUrl = 'https://static.example/uploads/haigou/haigou.mp4'
+  const contentUrl = 'https://cdn.example/show/index.m3u8'
+  const descriptor = buildMediaDescriptor([
+    { url: adUrl, pageUrl: iframePage, source: 'network', mimeType: 'video/mp4', mediaKind: 'video' },
+    { url: contentUrl, pageUrl: iframePage, source: 'dom', fromIframe: true },
+    { url: iframePage, pageUrl, source: 'network' },
+  ])
+  assert.equal(descriptor?.type, 'hls', '预告片 progressive 不得压过 iframe 中声明的正片 HLS')
+  assert.equal(descriptor?.url, contentUrl)
+  assert.equal(descriptor?.resources?.length, 2)
 }
 
 {

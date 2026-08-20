@@ -1003,8 +1003,8 @@ export async function resolveArticleBody(
               pageUrl: article.originUrl,
               html: pageHtml,
               runtime: true,
-              // 视频页需要完整加载播放器并触发媒体请求；慢网络下 6s 常被页面加载吃满
-              timeoutMs: 9000,
+              // 视频页需要完整加载播放器并触发媒体请求；预告片后才出正片时 9s 不够
+              timeoutMs: 12000,
               signal,
           },
           withRelated,
@@ -1028,7 +1028,7 @@ export async function resolveArticleBody(
       pageUrl: article.originUrl,
       html: pageHtml,
       runtime: true,
-      timeoutMs: 9000,
+      timeoutMs: 12000,
       signal,
     }).catch(() => null)
     if (!descriptor) {

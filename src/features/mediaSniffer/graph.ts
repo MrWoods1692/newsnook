@@ -112,17 +112,20 @@ export function admitSessionObservation(
   if (observation.source === 'network' || observation.fromServiceWorker) return true
   const url = observation.url
   if (observation.fromIframe) {
-    // Inline player configuration is often the only place where a manifest is
-    // exposed when the player fails before issuing its first media request.
-    // The iframe document itself must still have been loaded by this session;
-    // accepting only strong media formats prevents arbitrary postMessage URLs.
-    if (observation.source === 'static' && url && observation.pageUrl && networkUrls.has(observation.pageUrl)) {
+    // Player iframes often declare the real HLS/DASH URL in config/DOM before
+    // preroll finishes. The stream request itself may not appear until after a
+    // long ad, which is outside the sniff budget. Trust strong manifests (and
+    // static progressive declarations) when the iframe document was loaded in
+    // this session; still require a real network hit for loose progressive DOM
+    // guesses so random postMessage URLs cannot enter the graph.
+    if (url && observation.pageUrl && networkUrls.has(observation.pageUrl)) {
       const format = mediaFormatFor(
         url,
         observation.mimeType,
         observation.mediaKind ? { mediaKind: observation.mediaKind } : undefined,
       )
-      return format === 'hls' || format === 'dash' || format === 'progressive'
+      if (format === 'hls' || format === 'dash') return true
+      if (observation.source === 'static' && format === 'progressive') return true
     }
     return Boolean(url && networkUrls.has(url))
   }
