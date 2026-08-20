@@ -582,14 +582,33 @@ video/1080.m3u8`
     true,
     'iframe 转发但已在网络集合中的 URL 可以保留',
   )
+  const iframePage = 'https://player.example/ec?episode=1'
+  const inlineManifest = 'https://cdn.example/live/index.m3u8'
+  const iframeNetwork = new Set([iframePage])
+  assert.equal(
+    admitSessionObservation(
+      { url: inlineManifest, pageUrl: iframePage, source: 'static', fromIframe: true },
+      undefined,
+      iframeNetwork,
+    ),
+    true,
+    '已加载 iframe 文档中的 inline HLS 地址不要求自身先产生网络请求',
+  )
   const graph = buildMediaGraph([
     { url: 'https://cdn.example/real.mp4', pageUrl, source: 'network', mimeType: 'video/mp4' },
     { url: 'https://evil.example/iframe-only.mp4', pageUrl, source: 'static', fromIframe: true, mimeType: 'video/mp4' },
+    { url: iframePage, pageUrl, source: 'network', mimeType: 'text/html' },
+    { url: inlineManifest, pageUrl: iframePage, source: 'static', fromIframe: true },
   ])
   assert.equal(
     graph.some((asset) => asset.videos.some((track) => track.url.includes('evil.example'))),
     false,
     'Graph 不得把未出现在网络集合中的 iframe 转发 URL 收成资产',
+  )
+  assert.equal(
+    graph.some((asset) => asset.manifest?.url === inlineManifest),
+    true,
+    '已加载 iframe 文档中的 inline HLS 地址应进入媒体图',
   )
 }
 
@@ -840,9 +859,13 @@ const maccmsDetailHtml = `<!DOCTYPE html>
   })
   assert.deepEqual(
     targets.map((target) => target.url),
-    ['https://vod.example/vodplay/42-1-1.html'],
+    [
+      'https://vod.example/vodplay/42-1-1.html',
+      'https://vod.example/vodplay/42-1-2.html',
+    ],
   )
-  assert.equal(targets[0]?.budgetMs, 9000)
+  assert.equal(targets[0]?.budgetMs, 9000, '首个播放目标应获得完整探测预算')
+  assert.equal(targets[1]?.budgetMs, 9000, '后续目标由编排层按剩余时间动态截断')
   const observations = observeMediaInHtml(maccmsDetailHtml, maccmsDetailUrl)
   assert.equal(
     buildMediaDescriptor(observations),
@@ -869,9 +892,9 @@ const maccmsDetailHtml = `<!DOCTYPE html>
       return [observation]
     },
   })
-  assert.equal(probed.length, 1, '详情页自身无媒体时只探测播放页，不再浪费窗口加载无播放器的详情页')
+  assert.equal(probed.length, 2, '详情页自身无媒体时按队列探测同站播放页，不再浪费窗口加载无播放器的详情页')
   assert.equal(probed[0]?.url, 'https://vod.example/vodplay/42-1-1.html')
-  assert.equal(probed[0]?.timeoutMs, 9000, '完整嗅探预算应花在播放页上')
+  assert.equal(probed[0]?.timeoutMs, 9000, '首个播放目标应获得完整嗅探预算')
   assert.equal(probed[0]?.referrer, maccmsDetailUrl, '播放页请求应携带详情页作为 Referer')
   assert.equal(descriptor?.url, observation.url)
 }
@@ -894,6 +917,45 @@ const maccmsDetailHtml = `<!DOCTYPE html>
     ['https://vod.example/voddetail/1.html'],
     '页面自身已声明媒体时保持原有行为：探测页面本身，不跟随播放页',
   )
+}
+
+{
+  const playerHtml = '<script>window.HR_P2P={"channel_key":"https://cdn.example/live/index.m3u8","region":"US"}</script>'
+  const observations = observeMediaInHtml(playerHtml, 'https://player.example/ec')
+  assert.ok(
+    observations.some((item) => item.url === 'https://cdn.example/live/index.m3u8'),
+    '播放器脚本中的 channel_key 清单 URL 必须进入静态观察路径',
+  )
+}
+
+{
+  const parsed = parseMediaApiBody(JSON.stringify({
+    format: 'hls',
+    url: 'https://cdn.example/live/master',
+    backup_urls: ['https://backup.example/live/master.m3u8', 'https://backup.example/live/alt.m3u8'],
+  }), pageUrl, 'fetch')
+  assert.equal(parsed.length, 3, '播放器 API 的 format 与 backup_urls 应全部进入观察图')
+  assert.ok(parsed.every((item) => item.mimeType === 'application/vnd.apple.mpegurl' || item.url?.endsWith('.m3u8')))
+}
+
+{
+  const wrapped = `https://player.example/proxy?url=${encodeURIComponent('https://cdn.example/signed/master.m3u8?token=1')}`
+  const parsed = parseMediaApiBody(JSON.stringify({ url: wrapped }), pageUrl, 'fetch')
+  assert.deepEqual(parsed.map((item) => item.url), ['https://cdn.example/signed/master.m3u8?token=1'], 'API 包装 URL 应展开内部媒体地址')
+}
+
+{
+  const targets = planSniffTargets({
+    pageUrl: 'https://news.example/article/1',
+    html: '<iframe src="https://player.example/embed/1"></iframe>',
+    staticObservations: [],
+    totalTimeoutMs: 6000,
+  })
+  assert.deepEqual(targets, [{
+    url: 'https://player.example/embed/1',
+    referrer: 'https://news.example/article/1',
+    budgetMs: 6000,
+  }], '无 JSON-LD 播放页时 iframe 也应成为独立嗅探目标')
 }
 
 console.log('media-sniffer tests passed')

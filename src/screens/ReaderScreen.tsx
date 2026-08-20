@@ -836,8 +836,9 @@ export function ReaderScreen({
 
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col pt-[var(--sat)]"
+      className="absolute inset-0 z-30 flex flex-col"
       style={{
+        paddingTop: 'var(--sat)',
         animation: reduced ? undefined : 'reader-in 360ms var(--ease-ink) both',
       }}
     >
@@ -1109,7 +1110,7 @@ export function ReaderScreen({
               </div>
             )}
 
-            <div className="page-x pt-6 pb-[max(var(--sab),40px)]">
+            <div className="page-x pt-6" style={{ paddingBottom: 'calc(var(--sab) + 40px)' }}>
               {loadState === 'loading' && <ReaderSkeleton />}
 
               {loadState === 'error' && (
@@ -1239,7 +1240,7 @@ export function ReaderScreen({
       {einkMode && loadState === 'ready' && !einkMenuOpen && (
         <div
           data-surface="reader-chrome"
-          className="shrink-0 border-t border-haze/40 bg-ink pb-[max(var(--sab),8px)] pt-1.5"
+          className="shrink-0 border-t border-haze/40 bg-ink pt-1.5 safe-pb-8"
         >
           <p className="text-center font-mono text-[11px] tracking-[0.12em] text-paper-faint">
             {paged.pageIndex + 1} / {Math.max(paged.pages.length, 1)}
@@ -1273,7 +1274,7 @@ export function ReaderScreen({
       {/* 底部右下角悬浮跟贴胶囊（随时一触即达） */}
       {canComment && !commentsOpen && !einkMode && (
         <div
-          className={`fixed bottom-[max(var(--sab),20px)] right-4 z-40 transition-all duration-300 pointer-events-auto ${
+          className={`fixed right-4 z-40 transition-all duration-300 pointer-events-auto safe-bottom-20 ${
             (einkMode ? chromeVisible : pillVisible)
               ? 'opacity-100 translate-y-0 scale-100'
               : 'opacity-0 translate-y-6 scale-90 pointer-events-none'

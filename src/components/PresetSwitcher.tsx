@@ -80,7 +80,7 @@ export function PresetSwitcher({
           aria-labelledby={titleId}
           className="relative z-10 flex max-h-[min(82vh,580px)] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl md:rounded-2xl border border-haze/90 bg-ink-raised shadow-2xl"
           style={{
-            paddingBottom: 'max(var(--sab, 0px), 14px)',
+            paddingBottom: 'calc(var(--sab, 0px) + 14px)',
             animation: 'preset-modal-in 240ms var(--ease-ink) both',
           }}
         >

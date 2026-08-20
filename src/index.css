@@ -285,10 +285,10 @@
 /* 安全区变量：优先取 Android 原生注入的高度，回退取 CSS env() */
 /* Chrome < 79 不支持 max()，先给 fallback，再用 @supports 覆盖 */
 :root {
-  --sat: var(--sat-native, 0px);
-  --sab: var(--sab-native, 0px);
-  --sal: var(--sal-native, 0px);
-  --sar: var(--sar-native, 0px);
+  --sat: var(--sat-native, env(safe-area-inset-top, 0px));
+  --sab: var(--sab-native, env(safe-area-inset-bottom, 0px));
+  --sal: var(--sal-native, env(safe-area-inset-left, 0px));
+  --sar: var(--sar-native, env(safe-area-inset-right, 0px));
 }
 @supports (width: max(1px, 2px)) {
   :root {
@@ -298,6 +298,13 @@
     --sar: max(var(--sar-native, 0px), env(safe-area-inset-right, 0px));
   }
 }
+
+/* Chrome < 79 以及部分存在 max() 嵌套 bug 的内核：统一改用极度健壮的 calc() 叠加安全区，替代 max() */
+.safe-pb-8 { padding-bottom: calc(var(--sab) + 8px); }
+.safe-pb-12 { padding-bottom: calc(var(--sab) + 12px); }
+.safe-pb-16 { padding-bottom: calc(var(--sab) + 16px); }
+.safe-pb-24 { padding-bottom: calc(var(--sab) + 24px); }
+.safe-bottom-20 { bottom: calc(var(--sab) + 20px); }
 
 /* 阅读排版：默认值写在这里，用户偏好在运行时覆盖同名变量 */
 :root {

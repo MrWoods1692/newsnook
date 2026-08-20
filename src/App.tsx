@@ -1083,7 +1083,8 @@ export default function App() {
             <div
               role="status"
               aria-label="正在打开文章"
-              className="absolute inset-0 z-30 bg-ink pt-[var(--sat)]"
+              className="absolute inset-0 z-30 bg-ink"
+              style={{ paddingTop: 'var(--sat)' }}
             />
           }
         >

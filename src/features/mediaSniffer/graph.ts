@@ -112,6 +112,18 @@ export function admitSessionObservation(
   if (observation.source === 'network' || observation.fromServiceWorker) return true
   const url = observation.url
   if (observation.fromIframe) {
+    // Inline player configuration is often the only place where a manifest is
+    // exposed when the player fails before issuing its first media request.
+    // The iframe document itself must still have been loaded by this session;
+    // accepting only strong media formats prevents arbitrary postMessage URLs.
+    if (observation.source === 'static' && url && observation.pageUrl && networkUrls.has(observation.pageUrl)) {
+      const format = mediaFormatFor(
+        url,
+        observation.mimeType,
+        observation.mediaKind ? { mediaKind: observation.mediaKind } : undefined,
+      )
+      return format === 'hls' || format === 'dash' || format === 'progressive'
+    }
     return Boolean(url && networkUrls.has(url))
   }
   if (observation.sessionNonce) {
@@ -394,7 +406,7 @@ function isStaticOnlyWeakAsset(asset: GraphAsset): boolean {
   if (asset.manifest) return false
   const mime = normalizedMime(asset.mimeType)
   if (mime.startsWith('video/') || mime.startsWith('audio/') || MANIFEST_MIMES.has(mime)) return false
-  const primaryUrl = asset.videos[0]?.url || asset.audios[0]?.url || asset.manifest?.url
+  const primaryUrl = asset.videos[0]?.url || asset.audios[0]?.url
   if (primaryUrl && looksMediaUrl(primaryUrl)) return false
   return true
 }

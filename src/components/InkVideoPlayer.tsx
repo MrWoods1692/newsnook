@@ -1441,8 +1441,8 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
               event.stopPropagation()
               revealControls()
             }}
-            className={`pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-start gap-2 bg-gradient-to-b from-black/75 via-black/30 to-transparent pb-8 pl-[max(0.625rem,var(--sal,0px))] pr-[max(0.625rem,var(--sar,0px))] transition-opacity duration-200 ${
-              immersive ? 'pt-[max(0.5rem,var(--sat,0px))]' : 'pt-2'
+            className={`pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-start gap-2 bg-gradient-to-b from-black/75 via-black/30 to-transparent pb-8 pl-[calc(var(--sal,0px)+0.625rem)] pr-[calc(var(--sar,0px)+0.625rem)] transition-opacity duration-200 ${
+              immersive ? 'pt-[calc(var(--sat,0px)+0.5rem)]' : 'pt-2'
             } ${showChrome ? 'opacity-100' : 'opacity-0'}`}
           >
             <div className="min-w-0 flex-1 px-1 pt-1.5">
@@ -1503,7 +1503,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
         {boosting && (
           <div
             className="pointer-events-none absolute inset-x-0 z-[2] flex justify-center"
-            style={{ top: 'max(12px, calc(var(--sat, 0px) + 8px))' }}
+            style={{ top: 'calc(var(--sat, 0px) + 12px)' }}
           >
             <span className="inline-block whitespace-nowrap rounded-full bg-ink-raised/85 px-3 py-1 text-[11px] leading-none text-paper">
               {BOOST_RATE}x 快进中
@@ -1545,9 +1545,9 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
               event.stopPropagation()
               revealControls()
             }}
-            className={`pointer-events-none absolute inset-x-0 bottom-0 z-[3] bg-gradient-to-t from-black/80 via-black/45 to-transparent pl-[max(0.75rem,var(--sal,0px))] pr-[max(0.75rem,var(--sar,0px))] pt-10 transition-opacity duration-200 ${
+            className={`pointer-events-none absolute inset-x-0 bottom-0 z-[3] bg-gradient-to-t from-black/80 via-black/45 to-transparent pl-[calc(var(--sal,0px)+0.75rem)] pr-[calc(var(--sar,0px)+0.75rem)] pt-10 transition-opacity duration-200 ${
               immersive
-                ? 'pb-[max(0.625rem,var(--sab,0px))]'
+                ? 'pb-[calc(var(--sab,0px)+0.625rem)]'
                 : 'pb-2.5'
             } ${showChrome ? 'opacity-100' : 'opacity-0'}`}
           >
@@ -1723,8 +1723,8 @@ function MediaResourceOverlay({
         onClick={onToggle}
         className="fixed z-[100] flex items-center gap-2 rounded-full border border-haze bg-ink/95 px-3.5 py-2 text-paper shadow-xl shadow-black/35 backdrop-blur-md transition-transform hover:scale-105 active:scale-95"
         style={{
-          bottom: 'max(calc(var(--sab, 0px) + 76px), 76px)',
-          right: 'max(calc(var(--sar, 0px) + 1rem), 1rem)',
+          bottom: 'calc(var(--sab, 0px) + 76px)',
+          right: 'calc(var(--sar, 0px) + 1rem)',
         }}
       >
         <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-cinnabar/15 text-cinnabar">
@@ -1737,8 +1737,8 @@ function MediaResourceOverlay({
         <div
           className="fixed z-[101] max-h-[min(60vh,280px)] w-[min(88vw,330px)] overflow-y-auto rounded-xl border border-paper/20 bg-ink-raised/95 p-1.5 shadow-xl backdrop-blur-md"
           style={{
-            bottom: 'max(calc(var(--sab, 0px) + 128px), 128px)',
-            right: 'max(calc(var(--sar, 0px) + 1rem), 1rem)',
+            bottom: 'calc(var(--sab, 0px) + 128px)',
+            right: 'calc(var(--sar, 0px) + 1rem)',
           }}
           onPointerDown={(event) => event.stopPropagation()}
         >

@@ -139,6 +139,7 @@ function hasStrongMediaSignal(obs: MediaObservation, url: string): boolean {
   if (mime.startsWith('video/') || mime.startsWith('audio/') || MANIFEST_MIMES.has(mime)) return true
   if (HLS_EXT.test(url) || DASH_EXT.test(url) || DIRECT_MEDIA_EXT.test(url)) return true
   if (obs.quality) return true
+  if (obs.hasVideo === true || obs.hasAudio === true) return true
   const codecText = `${mime} ${obs.codecs || ''}`
   if (VIDEO_CODEC.test(codecText) || AUDIO_CODEC.test(codecText)) return true
   if (obs.source === 'dom') return true

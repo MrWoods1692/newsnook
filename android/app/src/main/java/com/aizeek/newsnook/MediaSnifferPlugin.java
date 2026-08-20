@@ -94,6 +94,7 @@ public class MediaSnifferPlugin extends Plugin {
           const events = window.__newsnookMediaEvents = [];
           const seen = new Set();
           const inspectedPayloads = new WeakSet();
+          const inspectedScripts = new WeakSet();
           const isHighValue = (event) => {
             if (!event || event.source === 'performance') return false;
             const mime = String(event.mimeType || event.mseMimeType || '').toLowerCase();
@@ -101,7 +102,8 @@ public class MediaSnifferPlugin extends Plugin {
             if (mime.includes('mpegurl') || mime.includes('dash+xml') || mime.includes('vnd.apple.mpegurl')) return true;
             if (event.source === 'mse' && event.mseMimeType) return true;
             if (event.source === 'dom' && event.url) return true;
-            if ((event.source === 'fetch' || event.source === 'xhr') && event.bodyText) return true;
+            if (event.source === 'static' && event.url && looksMediaUrl(event.url)) return true;
+            if ((event.source === 'fetch' || event.source === 'xhr') && event.bodyText && looksLikePlayerJson(event.bodyText)) return true;
             return false;
           };
           const push = (event) => {
@@ -150,16 +152,33 @@ public class MediaSnifferPlugin extends Plugin {
           };
           const triggerPlayback = () => {
             if (window.__newsnookPlaybackTriggered) return;
-            window.__newsnookPlaybackTriggered = true;
             try {
               const playPattern = /play|watch|观看|播放/i;
-              document.querySelectorAll('button,[role="button"],a').forEach((el) => {
+              const candidates = [];
+              document.querySelectorAll('button,[role="button"]').forEach((el) => {
                 const text = (el.textContent || '').trim();
-                const href = el.getAttribute('href') || '';
-                if (playPattern.test(text) || /\\/(?:play|watch|vodplay|player|embed)/i.test(href)) {
-                  try { el.click(); } catch (_) {}
-                }
+                const label = [text, el.getAttribute('aria-label') || '', el.getAttribute('title') || ''].join(' ');
+                if (playPattern.test(label)) candidates.push({ priority: 0, element: el });
               });
+              document.querySelectorAll('a[href]').forEach((el) => {
+                const href = el.getAttribute('href') || '';
+                try {
+                  const target = new URL(href, location.href);
+                  if (target.origin !== location.origin) return;
+                  if (/\\/(?:play|watch|vodplay|player|embed|video\\/play)(?:[/?#]|$)/i.test(target.pathname + target.search + target.hash)) candidates.push({ priority: 1, element: el });
+                } catch (_) {}
+              });
+              document.querySelectorAll('iframe[src],iframe[data-src]').forEach((el) => {
+                const raw = el.getAttribute('src') || el.getAttribute('data-src') || '';
+                try {
+                  const target = new URL(raw, location.href);
+                  if (/\\/(?:player|embed|play|watch)(?:[/?#]|$)/i.test(target.pathname + target.search + target.hash)) candidates.push({ priority: 2, element: el });
+                } catch (_) {}
+              });
+              const candidate = candidates.sort((left, right) => left.priority - right.priority)[0];
+              if (!candidate) return;
+              window.__newsnookPlaybackTriggered = true;
+              try { candidate.element.click(); } catch (_) {}
             } catch (_) {}
           };
           const positiveNumber = (value) => {
@@ -187,18 +206,20 @@ public class MediaSnifferPlugin extends Plugin {
                 const height = positiveNumber(value.height);
                 const hasVideo = Boolean(value.qualityLabel || /^video\\//i.test(mimeType || '') || /(?:avc1|av01|hvc1|hev1|vp0?9|vp8)/i.test(codecText));
                 const hasAudio = Boolean(value.audioQuality || value.audioSampleRate || value.audioChannels || /^audio\\//i.test(mimeType || '') || /(?:mp4a|aac|opus|vorbis|ac-3|ec-3)/i.test(codecText));
-                push({
-                  source: 'static',
-                  url,
-                  mimeType,
-                  codecs: typeof value.codecs === 'string' ? value.codecs : undefined,
-                  mediaKind: /^audio\\//i.test(mimeType || '') ? 'audio' : hasVideo ? 'video' : undefined,
-                  hasAudio: hasAudio ? true : hasVideo && value.qualityLabel ? false : undefined,
-                  hasVideo: hasVideo || undefined,
-                  width,
-                  height,
-                  bitrate: positiveNumber(value.bitrate),
-                });
+                if (looksMediaUrl(url) || mimeType || hasVideo || hasAudio) {
+                  push({
+                    source: 'static',
+                    url,
+                    mimeType,
+                    codecs: typeof value.codecs === 'string' ? value.codecs : undefined,
+                    mediaKind: /^audio\\//i.test(mimeType || '') ? 'audio' : hasVideo ? 'video' : undefined,
+                    hasAudio: hasAudio ? true : hasVideo && value.qualityLabel ? false : undefined,
+                    hasVideo: hasVideo || undefined,
+                    width,
+                    height,
+                    bitrate: positiveNumber(value.bitrate),
+                  });
+                }
               }
             } catch (_) {}
             try { Object.values(value).forEach((item) => inspectPayload(item, depth + 1)); } catch (_) {}
@@ -242,9 +263,27 @@ public class MediaSnifferPlugin extends Plugin {
               }
             }
           };
+          const inspectScriptPayloads = () => {
+            try {
+              document.querySelectorAll('script').forEach((script) => {
+                if (inspectedScripts.has(script)) return;
+                inspectedScripts.add(script);
+                const text = script.textContent || '';
+                if (!text || text.length > maxBodyText) return;
+                for (const match of text.matchAll(/https?:\\\\?\\/\\\\?\\/[^\\s"'<>]+/gi)) {
+                  const url = match[0]
+                    .replace(/\\\\\\//g, '/')
+                    .replace(/\\\\u0026/gi, '&')
+                    .replace(/[),;]+$/g, '');
+                  if (looksMediaUrl(url)) push({ source: 'static', url });
+                }
+              });
+            } catch (_) {}
+          };
           const scan = () => {
             inspect(document.documentElement);
             inspectPlayerState();
+            inspectScriptPayloads();
             try {
               for (const entry of performance.getEntriesByType('resource')) {
                 if (looksMediaUrl(entry.name)) push({ source: 'performance', url: entry.name });
@@ -258,7 +297,9 @@ public class MediaSnifferPlugin extends Plugin {
             try {
               new MutationObserver((records) => records.forEach((record) => {
                 inspect(record.target);
+                if (record.target?.tagName === 'SCRIPT') inspectScriptPayloads();
                 record.addedNodes.forEach(inspect);
+                record.addedNodes.forEach((node) => { if (node?.tagName === 'SCRIPT') inspectScriptPayloads(); });
               })).observe(document.documentElement, { subtree: true, childList: true, attributes: true, attributeFilter: ['src', 'data-src', 'data-video-src'] });
               document.addEventListener('play', (event) => inspect(event.target), true);
               document.addEventListener('loadedmetadata', (event) => inspect(event.target), true);
@@ -936,12 +977,17 @@ public class MediaSnifferPlugin extends Plugin {
      * hit, and the final result only waits for a small bounded drain.
      */
     private static final class LiveProbeQueue {
-        private static final long DRAIN_MS = 650L;
+        // MediaProbe has a three-second call timeout; a shorter drain drops
+        // late Range/HEAD classifications before they reach the graph.
+        private static final long DRAIN_MS = 3500L;
 
         private final OkHttpClient client;
         private final AtomicLong lastHighValueAt;
         private final ObservationEmitter emitter;
-        private final ExecutorService executor = Executors.newFixedThreadPool(4);
+        // Probe candidates are independent. Eight workers let the bounded
+        // session queue converge within the final drain without serializing
+        // extensionless requests behind one slow endpoint.
+        private final ExecutorService executor = Executors.newFixedThreadPool(8);
         private final Set<String> seen = ConcurrentHashMap.newKeySet();
         private final AtomicInteger scheduled = new AtomicInteger(0);
         private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -1145,7 +1191,15 @@ public class MediaSnifferPlugin extends Plugin {
             if (!eventNonce.isEmpty() && !eventNonce.equals(sessionNonce)) continue;
             if (event.optBoolean("fromIframe", false)) {
                 String url = event.optString("url", "");
-                if (url.isEmpty() || !networkUrls.contains(url)) continue;
+                String frameUrl = event.optString("pageUrl", "");
+                boolean loadedFrame = !frameUrl.isEmpty() && networkUrls.contains(frameUrl);
+                boolean staticMedia = "static".equals(event.optString("source", ""))
+                    && inferredMimeType(url) != null;
+                // A player may publish its manifest in inline configuration and
+                // fail before requesting it (for example after a page JS error).
+                // Trust that declaration only when the iframe document itself
+                // was loaded in this session and the URL has a strong media type.
+                if (url.isEmpty() || (!networkUrls.contains(url) && !(loadedFrame && staticMedia))) continue;
             }
             event.remove("sessionNonce");
             trusted.put(event);

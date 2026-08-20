@@ -116,11 +116,16 @@ export async function discoverMediaDescriptor(options: {
       staticObservations,
       totalTimeoutMs: options.timeoutMs ?? 6000,
     })
+    const totalTimeoutMs = options.timeoutMs ?? 6000
+    const deadline = Date.now() + totalTimeoutMs
     for (const target of sniffTargets) {
+      const remainingMs = deadline - Date.now()
+      if (remainingMs <= 0) break
+      const targetTimeoutMs = Math.min(target.budgetMs, remainingMs)
       const probeTarget = runtimeProbePageUrl(target.url)
       const observations = await observe(
         probeTarget,
-        target.budgetMs,
+        targetTimeoutMs,
         target.referrer ?? options.referrer,
         (observation) => {
           const admitted = admitObservation(observation)

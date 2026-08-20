@@ -10,7 +10,10 @@ interface Props {
  */
 export function AppShell({ children }: Props) {
   return (
-    <div className="ink-grain relative flex h-full h-dvh w-full flex-col overflow-hidden bg-ink pt-[var(--sat)]">
+    <div
+      className="ink-grain relative flex h-full h-dvh w-full flex-col overflow-hidden bg-ink"
+      style={{ paddingTop: 'var(--sat)' }}
+    >
       <div
         aria-hidden
         className="pointer-events-none fixed inset-x-0 top-0 z-[60] bg-ink"

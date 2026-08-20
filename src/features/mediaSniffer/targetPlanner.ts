@@ -15,6 +15,10 @@ export type SniffTarget = {
   budgetMs: number
 }
 
+function uniqueUrls(urls: string[]): string[] {
+  return Array.from(new Set(urls))
+}
+
 function jsonLdType(record: Record<string, unknown>): string {
   const value = record['@type']
   return Array.isArray(value) ? value.join(' ') : String(value ?? '')
@@ -98,8 +102,8 @@ export function secondaryPlaybackUrlsInHtml(html: string, pageUrl: string): stri
     if (!value) continue
     try {
       const absolute = new URL(value.replace(/&amp;/g, '&'), pageUrl)
-      if (!isHttpUrl(absolute) || absolute.href === pageUrl) continue
-      if (pageOrigin && originOf(absolute) !== pageOrigin) continue
+      if (!isHttpUrl(absolute.href) || absolute.href === pageUrl) continue
+      if (pageOrigin && originOf(absolute.href) !== pageOrigin) continue
       if (!PLAYBACK_PATH_PATTERN.test(absolute.pathname + absolute.search + absolute.hash)) continue
       urls.push(absolute.href)
     } catch {
@@ -130,12 +134,14 @@ export function planSniffTargets(input: {
   )
 
   if (hasDirectMedia) {
-    const urls = [...iframeUrls, input.pageUrl]
-    const budgetMs = Math.max(1500, Math.floor(totalTimeoutMs / Math.max(urls.length, 1)))
+    const urls = uniqueUrls([...iframeUrls, input.pageUrl])
     return urls.map((url) => ({
       url,
       referrer: url === input.pageUrl ? undefined : input.pageUrl,
-      budgetMs,
+      // The service owns the global deadline and truncates fallback targets
+      // after an earlier target consumes time. Keeping the full budget here
+      // avoids starving the first, highest-confidence player page.
+      budgetMs: totalTimeoutMs,
     }))
   }
 
@@ -143,11 +149,19 @@ export function planSniffTargets(input: {
     ? secondaryPlaybackUrlsInHtml(input.html, input.pageUrl)
     : []
   if (secondary.length) {
-    return [{
-      url: secondary[0],
+    return secondary.map((url) => ({
+      url,
       referrer: input.pageUrl,
       budgetMs: totalTimeoutMs,
-    }]
+    }))
+  }
+
+  if (iframeUrls.length) {
+    return iframeUrls.map((url) => ({
+      url,
+      referrer: input.pageUrl,
+      budgetMs: totalTimeoutMs,
+    }))
   }
 
   return [{ url: input.pageUrl, budgetMs: totalTimeoutMs }]
