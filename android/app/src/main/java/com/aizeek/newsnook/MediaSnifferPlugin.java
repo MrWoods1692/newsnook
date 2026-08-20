@@ -3,6 +3,8 @@ package com.aizeek.newsnook;
 import android.annotation.SuppressLint;
 import android.graphics.Color;
 import android.net.Uri;
+import android.util.DisplayMetrics;
+import android.view.Gravity;
 import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceRequest;
@@ -83,6 +85,15 @@ public class MediaSnifferPlugin extends Plugin {
             "accept", "accept-language", "origin", "referer", "user-agent"
         ))
     );
+
+    /** Visible, long-lived origin player surface (at most one). */
+    private String liveSessionId;
+    private WebView liveWebView;
+    private FrameLayout liveHost;
+    private ScriptHandler liveScriptHandler;
+    private JSONArray liveNetworkEvents;
+    private LiveProbeQueue liveProbeQueue;
+    private final AtomicBoolean liveActive = new AtomicBoolean(false);
 
     private static final String PROBE_SCRIPT_TEMPLATE = """
         (() => {
@@ -473,6 +484,31 @@ public class MediaSnifferPlugin extends Plugin {
         }
     }
 
+    @PluginMethod
+    public void startLiveSession(PluginCall call) {
+        String url = call.getString("url");
+        if (!isAllowedPageUrl(url)) {
+            call.reject("仅支持 HTTP/HTTPS 原文地址");
+            return;
+        }
+        String referrer = call.getString("referrer");
+        if (!isAllowedPageUrl(referrer)) referrer = null;
+        String sessionId = call.getString("sessionId");
+        if (sessionId == null || sessionId.trim().isEmpty()) sessionId = UUID.randomUUID().toString();
+        String finalReferrer = referrer;
+        String finalSessionId = sessionId;
+        getActivity().runOnUiThread(() -> startLiveSessionOnUi(call, url, finalReferrer, finalSessionId));
+    }
+
+    @PluginMethod
+    public void stopLiveSession(PluginCall call) {
+        String sessionId = call.getString("sessionId");
+        getActivity().runOnUiThread(() -> {
+            stopLiveSessionOnUi(sessionId);
+            call.resolve();
+        });
+    }
+
     static void clearPlaybackContexts() {
         PLAYBACK_CONTEXTS.clear();
     }
@@ -692,6 +728,132 @@ public class MediaSnifferPlugin extends Plugin {
         if (value == null) return false;
         String trimmed = value.trim().toLowerCase(Locale.ROOT);
         return trimmed.startsWith("blob:") || trimmed.startsWith("data:");
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private void startLiveSessionOnUi(
+        PluginCall call,
+        String initialUrl,
+        String referrer,
+        String sessionId
+    ) {
+        FrameLayout root = getActivity().findViewById(android.R.id.content);
+        if (root == null) {
+            call.reject("无法创建原站播放表面");
+            return;
+        }
+        stopLiveSessionOnUi(null);
+
+        WebView webView = new WebView(getActivity());
+        webView.setBackgroundColor(Color.BLACK);
+        webView.setAlpha(1f);
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setAllowFileAccess(false);
+        settings.setAllowContentAccess(false);
+        settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        settings.setSupportMultipleWindows(false);
+
+        CookieManager.getInstance().setAcceptCookie(true);
+        CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
+
+        JSONArray networkEvents = new JSONArray();
+        AtomicReference<String> pageUrl = new AtomicReference<>(initialUrl);
+        AtomicLong nativeLastHighValueAt = new AtomicLong(0L);
+        String sessionNonce = UUID.randomUUID().toString();
+        String probeScript = buildProbeScript(sessionNonce);
+        LiveProbeQueue liveProbes = new LiveProbeQueue(
+            createProbeClient(settings.getUserAgentString()),
+            nativeLastHighValueAt,
+            event -> emitMediaObservation(sessionId, event)
+        );
+        ScriptHandler scriptHandler = installDocumentStartProbe(webView, probeScript);
+        ServiceWorkerSniffer.install(
+            networkEvents,
+            pageUrl,
+            nativeLastHighValueAt,
+            event -> handleNetworkObservation(event, liveProbes, sessionId)
+        );
+
+        webView.setWebViewClient(new WebViewClient() {
+            @Override
+            public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
+                pageUrl.set(url);
+                if (scriptHandler == null) view.evaluateJavascript(probeScript, null);
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                pageUrl.set(url);
+                view.evaluateJavascript(probeScript, null);
+            }
+
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                JSONObject event = recordNetworkEvent(networkEvents, pageUrl.get(), request, nativeLastHighValueAt);
+                handleNetworkObservation(event, liveProbes, sessionId);
+                return null;
+            }
+        });
+
+        DisplayMetrics metrics = getActivity().getResources().getDisplayMetrics();
+        int width = metrics.widthPixels;
+        int height = Math.max((int) (width * 9f / 16f), (int) (180 * metrics.density));
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            height,
+            Gravity.TOP
+        );
+        // Keep below typical status + app chrome; JS can refine later.
+        params.topMargin = (int) (56 * metrics.density);
+        root.addView(webView, params);
+
+        liveSessionId = sessionId;
+        liveWebView = webView;
+        liveHost = root;
+        liveScriptHandler = scriptHandler;
+        liveNetworkEvents = networkEvents;
+        liveProbeQueue = liveProbes;
+        liveActive.set(true);
+
+        if (referrer == null) {
+            webView.loadUrl(initialUrl);
+        } else {
+            Map<String, String> navigationHeaders = new HashMap<>();
+            navigationHeaders.put("Referer", referrer);
+            webView.loadUrl(initialUrl, navigationHeaders);
+        }
+        call.resolve();
+    }
+
+    private void stopLiveSessionOnUi(String sessionId) {
+        if (!liveActive.get() && liveWebView == null) return;
+        if (sessionId != null
+            && liveSessionId != null
+            && !sessionId.isEmpty()
+            && !sessionId.equals(liveSessionId)) {
+            return;
+        }
+        liveActive.set(false);
+        WebView webView = liveWebView;
+        FrameLayout host = liveHost;
+        ScriptHandler scriptHandler = liveScriptHandler;
+        JSONArray networkEvents = liveNetworkEvents;
+        LiveProbeQueue probes = liveProbeQueue;
+        liveWebView = null;
+        liveHost = null;
+        liveScriptHandler = null;
+        liveNetworkEvents = null;
+        liveProbeQueue = null;
+        liveSessionId = null;
+        if (probes != null) {
+            new Thread(probes::closeAndAwait, "newsnook-live-stop").start();
+        }
+        if (webView != null && host != null) {
+            cleanup(webView, host, scriptHandler, networkEvents != null ? networkEvents : new JSONArray());
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
