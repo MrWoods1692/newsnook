@@ -109,8 +109,8 @@ export function OriginPlayerSurface({
 
   return (
     <div className="page-x mt-5">
-      <div className="relative aspect-video w-full overflow-hidden rounded-xl border border-haze bg-ink-deep">
-        {mode === 'custom' && candidate ? (
+      {mode === 'custom' && candidate ? (
+        <div className="relative aspect-video w-full overflow-hidden rounded-[14px] bg-[#0c0d10]">
           <InkVideoPlayer
             src={candidate.url}
             poster={poster}
@@ -123,33 +123,51 @@ export function OriginPlayerSurface({
             onRefreshSource={backToOrigin}
             onPlaybackError={backToOrigin}
           />
-        ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
-            <p className="text-[13px] text-paper-muted">
-              {sessionError || '原站播放器已打开（可点播、过广告）。识别到正片后可切换阅读器播放。'}
-            </p>
-            {sessionError && openOriginal && (
-              <button
-                type="button"
-                onClick={openOriginal}
-                className="rounded-full border border-haze px-3 py-1.5 text-[12px] text-paper-muted"
-              >
-                浏览器打开原文
-              </button>
-            )}
-          </div>
-        )}
+        </div>
+      ) : (
+        <div
+          className={`reader-video-sniff-placeholder${poster ? ' has-poster' : ''}${sessionError ? ' is-failed' : ''}`}
+          role={sessionError ? 'alert' : 'status'}
+          aria-live="polite"
+        >
+          {poster ? (
+            <img
+              className="reader-video-sniff-poster"
+              src={poster}
+              alt=""
+              loading="eager"
+              decoding="async"
+              referrerPolicy="no-referrer"
+            />
+          ) : null}
 
-        {mode === 'origin' && candidate && (
-          <button
-            type="button"
-            onClick={() => void openCustom()}
-            className="absolute bottom-3 right-3 z-10 rounded-full border border-cinnabar/50 bg-cinnabar/90 px-3 py-2 text-[12px] font-medium text-paper shadow-lg"
-          >
-            用阅读器播放
-          </button>
-        )}
-      </div>
+          {sessionError ? (
+            <div className="reader-video-sniff-failed-stack">
+              <p className="reader-video-sniff-failed-text">{sessionError}</p>
+              {openOriginal && (
+                <button type="button" className="reader-video-sniff-retry" onClick={openOriginal}>
+                  打开原文
+                </button>
+              )}
+            </div>
+          ) : (
+            <span className="reader-video-sniff-pill">
+              {candidate ? null : <span className="reader-video-sniff-dot" />}
+              {candidate ? '已识别正片' : '原站播放中'}
+            </span>
+          )}
+
+          {candidate && !sessionError && (
+            <button
+              type="button"
+              onClick={() => void openCustom()}
+              className="reader-video-sniff-retry absolute bottom-3 right-3 z-10"
+            >
+              用阅读器播放
+            </button>
+          )}
+        </div>
+      )}
       {mode === 'custom' && (
         <button
           type="button"
