@@ -146,8 +146,6 @@ export function OriginPlayerSurface({
     void setNativeLiveSessionVisible(true)
   }
 
-  const showOriginChrome = mode === 'origin' || Boolean(sessionError)
-
   return (
     <div className="mt-5 page-x lg:px-8">
       <div className="overflow-hidden rounded-xl border border-haze bg-ink-raised/80">
@@ -168,7 +166,7 @@ export function OriginPlayerSurface({
           ) : null}
         </div>
 
-        {showOriginChrome && (
+        {mode === 'origin' && (
           <div className="flex items-center gap-2 px-2.5 py-2.5">
             {sessionError ? (
               <>
