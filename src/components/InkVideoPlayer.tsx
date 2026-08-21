@@ -20,6 +20,9 @@ import {
   SkipForward,
   Cast,
   ChevronLeft,
+  RefreshCw,
+  Tv2,
+  X,
   VolumeX,
   Volume2,
 } from 'lucide-react'
@@ -40,6 +43,17 @@ import {
   unlockVideoScreenOrientation,
   type LevelControl,
 } from '../lib/deviceMediaControls'
+import {
+  controlDlnaCast,
+  discoverDlnaDevices,
+  getDlnaCastStatus,
+  isDlnaCastAvailable,
+  startDlnaCast,
+  stopDlnaCast,
+  type DlnaCastDevice,
+  type DlnaCastSession,
+  type DlnaCastStatus,
+} from '../lib/dlnaCast'
 import {
   clampLevel,
   clampSeekTarget,
@@ -318,6 +332,8 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
   const toggleFullscreenRef = useRef<() => void>(() => {})
   const lastTapRef = useRef(0)
   const showChromeRef = useRef(true)
+  const castSessionRef = useRef<DlnaCastSession | null>(null)
+  const toastTimerRef = useRef<number | null>(null)
   const hudTimerRef = useRef<number | null>(null)
   /** 音量 / 亮度手势进行中；松手后迟到的异步写入不能把淡出定时器冲掉。 */
   const levelingRef = useRef(false)
@@ -356,6 +372,14 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
   const [rate, setRate] = useState(1)
   const [rateMenuOpen, setRateMenuOpen] = useState(false)
   const [resourceMenuOpen, setResourceMenuOpen] = useState(false)
+  const [castOpen, setCastOpen] = useState(false)
+  const [castDevices, setCastDevices] = useState<DlnaCastDevice[]>([])
+  const [castSearching, setCastSearching] = useState(false)
+  const [castConnectingId, setCastConnectingId] = useState<string | null>(null)
+  const [castError, setCastError] = useState<string | null>(null)
+  const [castSession, setCastSession] = useState<DlnaCastSession | null>(null)
+  const [castStatus, setCastStatus] = useState<DlnaCastStatus | null>(null)
+  const [playerToast, setPlayerToast] = useState<string | null>(null)
   const [boosting, setBoosting] = useState(false)
   const [gestureHud, setGestureHud] = useState<GestureHud | null>(null)
   const [videoView, setVideoView] = useState<VideoViewState>(DEFAULT_VIDEO_VIEW)
@@ -404,6 +428,163 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     setControlsVisible(true)
     scheduleHideControls()
   }, [scheduleHideControls])
+
+  const showPlayerToast = useCallback((message: string) => {
+    if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current)
+    setPlayerToast(message)
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null
+      setPlayerToast(null)
+    }, 1800)
+    revealControls()
+  }, [revealControls])
+
+  const refreshCastDevices = useCallback(async () => {
+    if (!isDlnaCastAvailable()) {
+      setCastError('投屏仅支持 Android 真机')
+      return
+    }
+    setCastSearching(true)
+    setCastError(null)
+    try {
+      const devices = await discoverDlnaDevices()
+      setCastDevices(devices)
+    } catch (error) {
+      setCastDevices([])
+      setCastError(error instanceof Error ? error.message : '搜索投屏设备失败')
+    } finally {
+      setCastSearching(false)
+    }
+  }, [])
+
+  const openCastPicker = useCallback(() => {
+    if (!isDlnaCastAvailable()) {
+      showPlayerToast('投屏仅支持 Android 真机')
+      return
+    }
+    setCastError(null)
+    setCastOpen(true)
+    if (!castSessionRef.current) void refreshCastDevices()
+  }, [refreshCastDevices, showPlayerToast])
+
+  const connectCastDevice = useCallback(async (device: DlnaCastDevice) => {
+    const castFormat = playableFormatForUrl(src, format)
+    if (castFormat === 'dash') {
+      setCastError('DASH 视频源暂不支持投屏')
+      return
+    }
+
+    setCastConnectingId(device.id)
+    setCastError(null)
+    try {
+      // Refresh the native playback context before the TV starts requesting the
+      // temporary relay URL. This preserves Referer/Cookie/proxy information
+      // captured for custom CMS sources.
+      await prepareNativeMediaPlayback({
+        url: src,
+        sourcePage,
+        format: castFormat,
+        headers: requestHeaders,
+        extraUrls,
+        forceBridge: true,
+      })
+
+      const video = videoRef.current
+      const positionSeconds = video && Number.isFinite(video.currentTime)
+        ? video.currentTime
+        : current
+      const session = await startDlnaCast({
+        deviceId: device.id,
+        url: src,
+        title: title || '文章视频',
+        format: castFormat,
+        positionSeconds,
+      })
+
+      castSessionRef.current = session
+      setCastSession(session)
+      setCastStatus({
+        state: 'playing',
+        current: positionSeconds,
+        duration,
+        deviceName: session.deviceName,
+      })
+      video?.pause()
+      if (immersive) toggleFullscreenRef.current()
+    } catch (error) {
+      setCastError(error instanceof Error ? error.message : '无法开始投屏')
+    } finally {
+      setCastConnectingId(null)
+    }
+  }, [current, duration, extraUrls, format, immersive, requestHeaders, sourcePage, src, title])
+
+  const sendCastControl = useCallback(async (
+    action: 'play' | 'pause' | 'seek' | 'volume',
+    value?: number,
+  ) => {
+    const session = castSessionRef.current
+    if (!session) return
+    setCastError(null)
+
+    // Keep the remote responsive while the renderer handles SOAP in the background.
+    setCastStatus((previous) => {
+      if (!previous) return previous
+      if (action === 'play') return { ...previous, state: 'playing' }
+      if (action === 'pause') return { ...previous, state: 'paused' }
+      if (action === 'seek' && value != null) return { ...previous, current: value }
+      if (action === 'volume' && value != null) return { ...previous, volume: value }
+      return previous
+    })
+
+    try {
+      await controlDlnaCast(session.id, action, value)
+    } catch (error) {
+      setCastError(error instanceof Error ? error.message : '投屏控制失败')
+    }
+  }, [])
+
+  const endCast = useCallback(async () => {
+    const session = castSessionRef.current
+    castSessionRef.current = null
+    setCastSession(null)
+    setCastStatus(null)
+    setCastError(null)
+    setCastOpen(false)
+    if (session) {
+      try {
+        await stopDlnaCast(session.id)
+      } catch {
+        // The renderer may already be offline; the native side still releases
+        // its local relay when possible.
+      }
+    }
+    showPlayerToast('已结束投屏')
+  }, [showPlayerToast])
+
+  useEffect(() => {
+    castSessionRef.current = castSession
+  }, [castSession])
+
+  useEffect(() => {
+    if (!castSession) return
+    let cancelled = false
+
+    const update = async () => {
+      try {
+        const next = await getDlnaCastStatus(castSession.id)
+        if (!cancelled) setCastStatus(next)
+      } catch {
+        // Keep the remote available across one-off TV/network polling failures.
+      }
+    }
+
+    void update()
+    const timer = window.setInterval(update, 1500)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [castSession])
 
   const syncBoostIndicator = useCallback((video: HTMLVideoElement) => {
     setBoosting(
@@ -861,8 +1042,12 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
       if (tapTimerRef.current != null) window.clearTimeout(tapTimerRef.current)
       if (longPressTimerRef.current != null) window.clearTimeout(longPressTimerRef.current)
       if (hudTimerRef.current != null) window.clearTimeout(hudTimerRef.current)
+      if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current)
       activePointersRef.current.clear()
       pinchRef.current = null
+      const activeCast = castSessionRef.current
+      castSessionRef.current = null
+      if (activeCast) void stopDlnaCast(activeCast.id).catch(() => undefined)
       // 卸载时若仍在全屏，窗口亮度必须归还系统，否则整个应用会一直停在调暗状态
       brightnessControl.release()
       volumeControl.release()
@@ -1498,7 +1683,18 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
 
             <div className={`flex items-center gap-3 pr-2 text-paper/90 ${showChrome ? 'pointer-events-auto' : ''}`}>
               <span className="text-[13px] font-medium tracking-wide drop-shadow-md tabular-nums">{clock}</span>
-              <button type="button" className="flex h-8 w-8 items-center justify-center rounded-full active:bg-paper/15" aria-label="投屏">
+              <button
+                type="button"
+                className={`flex h-8 w-8 items-center justify-center rounded-full active:bg-paper/15 ${
+                  castSession ? 'bg-paper/15 text-paper' : ''
+                }`}
+                aria-label={castSession ? `正在投屏到 ${castSession.deviceName}` : '投屏'}
+                title={castSession ? `正在投屏到 ${castSession.deviceName}` : '投屏'}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  openCastPicker()
+                }}
+              >
                 <Cast size={18} strokeWidth={2} />
               </button>
               <PlayerBatteryIcon status={battery} />
@@ -1531,6 +1727,18 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
             <span className="inline-block whitespace-nowrap rounded-full bg-ink-raised/85 px-3 py-1 text-[11px] leading-none text-paper">
               {BOOST_RATE}x 快进中
             </span>
+          </div>
+        )}
+
+        {playerToast && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-[76px] z-[9] flex justify-center px-4">
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-full bg-black/85 px-4 py-2 text-[12px] font-medium text-paper shadow-xl"
+            >
+              {playerToast}
+            </div>
           </div>
         )}
 
@@ -1643,12 +1851,29 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
                   <SkipForward size={18} strokeWidth={2} />
                 </button>
                 
-                <button className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15">
+                <button
+                  type="button"
+                  aria-label="锁定控制"
+                  onClick={() => showPlayerToast('功能开发中')}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-paper/90 transition-colors active:bg-paper/15"
+                >
                   <LockOpen size={17} strokeWidth={2} />
                 </button>
-                <span className="text-[13px] text-paper/80 font-medium px-1 hidden sm:inline-block">片头</span>
-                <span className="text-[13px] text-paper/80 font-medium px-1 hidden sm:inline-block">片尾</span>
-                
+                <button
+                  type="button"
+                  onClick={() => showPlayerToast('功能开发中')}
+                  className="hidden px-1 text-[13px] font-medium text-paper/80 sm:inline-block"
+                >
+                  片头
+                </button>
+                <button
+                  type="button"
+                  onClick={() => showPlayerToast('功能开发中')}
+                  className="hidden px-1 text-[13px] font-medium text-paper/80 sm:inline-block"
+                >
+                  片尾
+                </button>
+
                 {/* Rate Menu */}
                 <div className="relative ml-1">
                   <button
@@ -1683,11 +1908,21 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
               </div>
 
               <div className="flex items-center gap-1 sm:gap-2 pr-1">
-                <button className="hidden sm:inline-block rounded-full border border-paper/40 px-3 py-1 text-[12px] tracking-wide text-paper/95 whitespace-nowrap">
+                <button
+                  type="button"
+                  onClick={() => showPlayerToast('功能开发中')}
+                  className="hidden rounded-full border border-paper/40 px-3 py-1 text-[12px] tracking-wide text-paper/95 whitespace-nowrap sm:inline-block"
+                >
                   极速播
                 </button>
-                <span className="hidden sm:inline-block text-[13px] font-medium tracking-wide text-paper/95 whitespace-nowrap px-2">选集</span>
-                
+                <button
+                  type="button"
+                  onClick={() => showPlayerToast('功能开发中')}
+                  className="hidden whitespace-nowrap px-2 text-[13px] font-medium tracking-wide text-paper/95 sm:inline-block"
+                >
+                  选集
+                </button>
+
                 <button
                   type="button"
                   aria-label={rotationMode ? `旋转模式：${ROTATION_MODE_LABEL[rotationMode]}，点击切换` : '切换横竖屏'}
@@ -1740,6 +1975,24 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
       />,
       document.body,
       )}
+    {typeof document !== 'undefined' && createPortal(
+      <CastOverlay
+        open={castOpen}
+        devices={castDevices}
+        searching={castSearching}
+        connectingId={castConnectingId}
+        error={castError}
+        session={castSession}
+        status={castStatus}
+        fallbackDuration={duration}
+        onClose={() => setCastOpen(false)}
+        onRefresh={() => void refreshCastDevices()}
+        onConnect={(device) => void connectCastDevice(device)}
+        onControl={(action, value) => void sendCastControl(action, value)}
+        onStop={() => void endCast()}
+      />,
+      document.body,
+    )}
     </>
   )
 }
@@ -1855,6 +2108,274 @@ function MediaResourceOverlay({
         </div>
       )}
     </>
+  )
+}
+
+function CastOverlay({
+  open,
+  devices,
+  searching,
+  connectingId,
+  error,
+  session,
+  status,
+  fallbackDuration,
+  onClose,
+  onRefresh,
+  onConnect,
+  onControl,
+  onStop,
+}: {
+  open: boolean
+  devices: DlnaCastDevice[]
+  searching: boolean
+  connectingId: string | null
+  error: string | null
+  session: DlnaCastSession | null
+  status: DlnaCastStatus | null
+  fallbackDuration: number
+  onClose: () => void
+  onRefresh: () => void
+  onConnect: (device: DlnaCastDevice) => void
+  onControl: (action: 'play' | 'pause' | 'seek' | 'volume', value?: number) => void
+  onStop: () => void
+}) {
+  const [seekDraft, setSeekDraft] = useState<number | null>(null)
+  const [volumeDraft, setVolumeDraft] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (!open) {
+      setSeekDraft(null)
+      setVolumeDraft(null)
+    }
+  }, [open])
+
+  if (!open) return null
+
+  const total = Math.max(0, status?.duration || fallbackDuration || 0)
+  const remoteCurrent = Math.max(0, Math.min(total || Number.MAX_SAFE_INTEGER, status?.current || 0))
+  const seekValue = seekDraft ?? remoteCurrent
+  const volumeValue = volumeDraft ?? status?.volume ?? 0
+  const stateLabel =
+    status?.state === 'playing'
+      ? '播放中'
+      : status?.state === 'paused'
+        ? '已暂停'
+        : status?.state === 'transitioning'
+          ? '加载中'
+          : status?.state === 'stopped'
+            ? '已停止'
+            : '已连接'
+
+  const commitSeek = (value: number) => {
+    setSeekDraft(null)
+    onControl('seek', value)
+  }
+  const commitVolume = (value: number) => {
+    setVolumeDraft(null)
+    onControl('volume', value)
+  }
+
+  return (
+    <div
+      data-theme="dark"
+      data-no-page-tap=""
+      className="fixed inset-0 z-[140] flex items-end justify-center bg-black/65 backdrop-blur-sm md:items-center md:p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={session ? '投屏遥控器' : '选择投屏设备'}
+        className="w-full max-w-md overflow-hidden rounded-t-3xl border border-haze bg-ink-raised text-paper shadow-2xl md:rounded-3xl"
+        style={{ paddingBottom: 'calc(var(--sab, 0px) + 12px)' }}
+        onClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-haze/60 px-4 py-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-paper/10 text-paper">
+            <Cast size={18} strokeWidth={2} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h3 className="truncate text-[16px] font-medium">
+              {session ? session.deviceName : '投屏到设备'}
+            </h3>
+            <p className="mt-0.5 text-[11px] text-paper/55">
+              {session ? stateLabel : '搜索同一局域网内的电视和播放器'}
+            </p>
+          </div>
+          {!session && (
+            <button
+              type="button"
+              aria-label="重新搜索"
+              disabled={searching}
+              onClick={onRefresh}
+              className="flex size-9 items-center justify-center rounded-full text-paper/80 active:bg-paper/10 disabled:opacity-40"
+            >
+              <RefreshCw size={17} className={searching ? 'animate-spin' : ''} />
+            </button>
+          )}
+          <button
+            type="button"
+            aria-label="关闭"
+            onClick={onClose}
+            className="flex size-9 items-center justify-center rounded-full text-paper/80 active:bg-paper/10"
+          >
+            <X size={19} />
+          </button>
+        </div>
+
+        {error && (
+          <div className="mx-4 mt-3 rounded-xl border border-cinnabar/30 bg-cinnabar/10 px-3 py-2 text-[12px] leading-relaxed text-cinnabar-soft">
+            {error}
+          </div>
+        )}
+
+        {!session ? (
+          <div className="max-h-[58vh] overflow-y-auto overscroll-contain px-3 py-3">
+            {searching && devices.length === 0 && (
+              <div className="flex min-h-36 flex-col items-center justify-center gap-2 text-paper/60">
+                <LoaderCircle size={22} className="animate-spin" />
+                <span className="text-[12px]">正在搜索局域网投屏设备…</span>
+              </div>
+            )}
+
+            {!searching && devices.length === 0 && (
+              <div className="flex min-h-36 flex-col items-center justify-center gap-2 px-6 text-center text-paper/55">
+                <Tv2 size={28} strokeWidth={1.5} />
+                <p className="text-[12px] leading-relaxed">
+                  未发现可投屏设备。请确认手机和电视连接同一局域网，并在电视上开启投屏或 DLNA。
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              {devices.map((device) => {
+                const connecting = connectingId === device.id
+                const details = [device.manufacturer, device.model]
+                  .filter(Boolean)
+                  .join(' · ')
+                return (
+                  <button
+                    key={device.id}
+                    type="button"
+                    disabled={Boolean(connectingId)}
+                    onClick={() => onConnect(device)}
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors active:bg-paper/10 disabled:opacity-50"
+                  >
+                    <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-paper/10">
+                      <Tv2 size={20} strokeWidth={1.8} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-[14px] font-medium">{device.name}</span>
+                      <span className="mt-0.5 block truncate text-[11px] text-paper/50">
+                        {details || device.address}
+                      </span>
+                    </span>
+                    {connecting ? (
+                      <LoaderCircle size={18} className="animate-spin text-paper/70" />
+                    ) : (
+                      <Cast size={17} className="text-paper/45" />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="px-5 py-5">
+            <div className="rounded-2xl bg-black/25 px-4 py-4">
+              <input
+                type="range"
+                min={0}
+                max={total || 0}
+                step={1}
+                disabled={!total}
+                value={Number.isFinite(seekValue) ? seekValue : 0}
+                aria-label="电视播放进度"
+                className="ink-seek h-6 w-full appearance-none bg-transparent"
+                onChange={(event) => setSeekDraft(Number(event.currentTarget.value))}
+                onPointerUp={(event) => commitSeek(Number(event.currentTarget.value))}
+                onKeyUp={(event) => {
+                  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                    commitSeek(Number(event.currentTarget.value))
+                  }
+                }}
+              />
+              <div className="mt-1 flex justify-between font-mono text-[11px] tabular-nums text-paper/55">
+                <span>{formatTime(seekValue)}</span>
+                <span>{formatTime(total)}</span>
+              </div>
+
+              <div className="mt-4 flex items-center justify-center gap-5">
+                <button
+                  type="button"
+                  aria-label="后退 15 秒"
+                  onClick={() => onControl('seek', Math.max(0, remoteCurrent - 15))}
+                  className="flex size-12 items-center justify-center rounded-full bg-paper/10 text-paper active:bg-paper/15"
+                >
+                  <SkipBack size={20} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={status?.state === 'playing' ? '暂停电视播放' : '继续电视播放'}
+                  onClick={() => onControl(status?.state === 'playing' ? 'pause' : 'play')}
+                  className="flex size-16 items-center justify-center rounded-full bg-paper text-ink-deep active:scale-95"
+                >
+                  {status?.state === 'playing' ? (
+                    <Pause size={25} fill="currentColor" fillOpacity={0.2} />
+                  ) : (
+                    <Play size={26} className="ml-1" fill="currentColor" fillOpacity={0.2} />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  aria-label="前进 15 秒"
+                  onClick={() => onControl('seek', Math.min(total || remoteCurrent + 15, remoteCurrent + 15))}
+                  className="flex size-12 items-center justify-center rounded-full bg-paper/10 text-paper active:bg-paper/15"
+                >
+                  <SkipForward size={20} />
+                </button>
+              </div>
+
+              {status?.volume != null && (
+                <div className="mt-5 flex items-center gap-3">
+                  <Volume2 size={17} className="shrink-0 text-paper/60" />
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.01}
+                    value={Math.max(0, Math.min(1, volumeValue))}
+                    aria-label="电视音量"
+                    className="ink-seek h-6 min-w-0 flex-1 appearance-none bg-transparent"
+                    onChange={(event) => setVolumeDraft(Number(event.currentTarget.value))}
+                    onPointerUp={(event) => commitVolume(Number(event.currentTarget.value))}
+                    onKeyUp={(event) => {
+                      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                        commitVolume(Number(event.currentTarget.value))
+                      }
+                    }}
+                  />
+                  <span className="w-9 text-right font-mono text-[11px] text-paper/55">
+                    {Math.round(volumeValue * 100)}%
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={onStop}
+              className="mt-4 w-full rounded-2xl border border-paper/15 py-3 text-[13px] font-medium text-paper/80 active:bg-paper/10"
+            >
+              结束投屏
+            </button>
+          </div>
+        )}
+      </section>
+    </div>
   )
 }
 
