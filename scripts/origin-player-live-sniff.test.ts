@@ -132,4 +132,43 @@ assert.equal(withHls?.url, 'https://cdn.example/index.m3u8')
   )
 }
 
+{
+  const plugin = readFileSync(
+    join(
+      process.cwd(),
+      'android/app/src/main/java/com/aizeek/newsnook/MediaSnifferPlugin.java',
+    ),
+    'utf8',
+  )
+  const visibleStart = plugin.indexOf('public void setLiveSessionVisible')
+  const boundsStart = plugin.indexOf('public void setLiveSessionBounds', visibleStart)
+  assert.ok(visibleStart >= 0 && boundsStart > visibleStart)
+  const visibleBlock = plugin.slice(visibleStart, boundsStart)
+  assert.match(
+    visibleBlock,
+    /MUTE_AUDIO/,
+    'hiding live WebView must prefer WebView-level mute to keep the origin document',
+  )
+  assert.match(
+    visibleBlock,
+    /setAudioMuted/,
+    'must call WebViewCompat.setAudioMuted when mute is supported',
+  )
+  assert.match(
+    visibleBlock,
+    /onPause\(\)/,
+    'hiding live WebView must pause the WebView',
+  )
+  assert.match(
+    visibleBlock,
+    /about:blank/,
+    'must blank only as fallback when MUTE_AUDIO is unavailable',
+  )
+  assert.match(
+    visibleBlock,
+    /reloadLiveEntry/,
+    'showing after blank-fallback must reload the origin entry URL',
+  )
+}
+
 console.log('origin-player-live-sniff tests passed')

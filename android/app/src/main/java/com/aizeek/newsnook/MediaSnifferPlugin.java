@@ -97,6 +97,12 @@ public class MediaSnifferPlugin extends Plugin {
     private JSONArray liveNetworkEvents;
     private LiveProbeQueue liveProbeQueue;
     private final AtomicBoolean liveActive = new AtomicBoolean(false);
+    /** Entry URL/referrer; blank-fallback reload uses these when MUTE_AUDIO is unavailable. */
+    private String liveEntryUrl;
+    private String liveReferrer;
+    private boolean liveSuspended;
+    /** True when hide had to navigate to about:blank (no WebView-level mute). */
+    private boolean liveBlanked;
 
     private static final String PROBE_SCRIPT_TEMPLATE = """
         (() => {
@@ -516,12 +522,85 @@ public class MediaSnifferPlugin extends Plugin {
     public void setLiveSessionVisible(PluginCall call) {
         boolean visible = call.getBoolean("visible", true);
         getActivity().runOnUiThread(() -> {
-            WebView webView = liveWebView;
-            if (webView != null) {
-                webView.setVisibility(visible ? View.VISIBLE : View.GONE);
-            }
+            setLiveSessionVisibleOnUi(visible);
             call.resolve();
         });
+    }
+
+    /**
+     * Hide does not destroy the live session (「返回原站播放器」 / 403 旁路仍可保留).
+     * Prefer WebView-level mute + pause so the document stays; blank only as fallback.
+     */
+    private void setLiveSessionVisibleOnUi(boolean visible) {
+        WebView webView = liveWebView;
+        if (webView == null) return;
+        if (visible) {
+            if (liveSuspended) {
+                liveSuspended = false;
+                webView.onResume();
+                setLiveWebViewAudioMuted(webView, false);
+                if (liveBlanked) {
+                    liveBlanked = false;
+                    reloadLiveEntry(webView);
+                }
+            }
+            webView.setVisibility(View.VISIBLE);
+            return;
+        }
+        pauseLiveSessionMedia(webView);
+        liveSuspended = true;
+        boolean muted = setLiveWebViewAudioMuted(webView, true);
+        if (!muted) {
+            // Old WebView builds: cross-origin player iframes ignore same-doc pause().
+            liveBlanked = true;
+            webView.loadUrl("about:blank");
+        } else {
+            liveBlanked = false;
+        }
+        webView.onPause();
+        webView.setVisibility(View.GONE);
+    }
+
+    private static boolean setLiveWebViewAudioMuted(WebView webView, boolean muted) {
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.MUTE_AUDIO)) return false;
+        try {
+            WebViewCompat.setAudioMuted(webView, muted);
+            return true;
+        } catch (RuntimeException ignored) {
+            return false;
+        }
+    }
+
+    private void reloadLiveEntry(WebView webView) {
+        String url = liveEntryUrl;
+        if (url == null || url.trim().isEmpty()) return;
+        String referrer = liveReferrer;
+        if (referrer == null || referrer.trim().isEmpty()) {
+            webView.loadUrl(url);
+            return;
+        }
+        Map<String, String> navigationHeaders = new HashMap<>();
+        navigationHeaders.put("Referer", referrer);
+        webView.loadUrl(url, navigationHeaders);
+    }
+
+    private static void pauseLiveSessionMedia(WebView webView) {
+        webView.evaluateJavascript(
+            "(function(){try{"
+                + "var pauseAll=function(doc){"
+                + "if(!doc)return;"
+                + "doc.querySelectorAll('video,audio').forEach(function(m){"
+                + "try{m.pause()}catch(e){}"
+                + "try{m.muted=true}catch(e){}"
+                + "});"
+                + "};"
+                + "pauseAll(document);"
+                + "document.querySelectorAll('iframe').forEach(function(frame){"
+                + "try{pauseAll(frame.contentDocument)}catch(e){}"
+                + "});"
+                + "}catch(e){}})();",
+            null
+        );
     }
 
     /**
@@ -853,6 +932,10 @@ public class MediaSnifferPlugin extends Plugin {
         liveScriptHandler = scriptHandler;
         liveNetworkEvents = networkEvents;
         liveProbeQueue = liveProbes;
+        liveEntryUrl = initialUrl;
+        liveReferrer = referrer;
+        liveSuspended = false;
+        liveBlanked = false;
         liveActive.set(true);
 
         if (referrer == null) {
@@ -942,6 +1025,10 @@ public class MediaSnifferPlugin extends Plugin {
         liveNetworkEvents = null;
         liveProbeQueue = null;
         liveSessionId = null;
+        liveEntryUrl = null;
+        liveReferrer = null;
+        liveSuspended = false;
+        liveBlanked = false;
         if (probes != null) {
             new Thread(probes::closeAndAwait, "newsnook-live-stop").start();
         }
