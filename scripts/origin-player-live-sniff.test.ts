@@ -171,4 +171,29 @@ assert.equal(withHls?.url, 'https://cdn.example/index.m3u8')
   )
 }
 
+{
+  const player = readFileSync(
+    join(process.cwd(), 'src/components/InkVideoPlayer.tsx'),
+    'utf8',
+  )
+  const overlayStart = player.indexOf('function MediaResourceOverlay')
+  assert.ok(overlayStart >= 0, 'MediaResourceOverlay must exist')
+  const overlay = player.slice(overlayStart, overlayStart + 4500)
+  assert.match(
+    overlay,
+    /items-end/,
+    'sniff resource sheet must rise from the bottom like OptionPickerDialog',
+  )
+  assert.match(
+    overlay,
+    /\{!open && \(/,
+    'capsule must hide while the bottom sheet is open',
+  )
+  assert.match(
+    overlay,
+    /bg-black\/60/,
+    'sheet must use the shared modal scrim',
+  )
+}
+
 console.log('origin-player-live-sniff tests passed')
