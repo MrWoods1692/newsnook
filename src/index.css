@@ -299,6 +299,18 @@
   }
 }
 
+/*
+ * 全屏播放器与普通 App 壳使用不同的安全区语义。普通页面要避开系统栏；
+ * 沉浸式视频已经隐藏系统栏，只避开真实 display cutout。这样不会把横屏前
+ * 记录下来的状态栏高度/侧边导航栏宽度再次叠到播放器控制区。
+ */
+:root {
+  --video-sat: var(--video-sat-native, env(safe-area-inset-top, 0px));
+  --video-sab: var(--video-sab-native, env(safe-area-inset-bottom, 0px));
+  --video-sal: var(--video-sal-native, env(safe-area-inset-left, 0px));
+  --video-sar: var(--video-sar-native, env(safe-area-inset-right, 0px));
+}
+
 /* Chrome < 79 以及部分存在 max() 嵌套 bug 的内核：统一改用极度健壮的 calc() 叠加安全区，替代 max() */
 .safe-pb-8 { padding-bottom: calc(var(--sab) + 8px); }
 .safe-pb-12 { padding-bottom: calc(var(--sab) + 12px); }
@@ -928,6 +940,43 @@ html[data-eink='1'] .preset-switcher-sheet {
   transform: translate(-50%, -50%) scale(0.95);
 }
 
+/*
+ * 与上面的播放键同理：Tailwind v4 的 -translate-y-* 会编译成 Chrome 104+
+ * 才支持的独立 translate 属性。进度轨必须使用经典 transform，兼容
+ * Android WebView 69+。
+ */
+.ink-video-y-center {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/*
+ * Player chrome is not application chrome. In landscape fullscreen, a punch-hole
+ * on the short edge can report a large safeInsetLeft/Right even though the top and
+ * bottom control rows never intersect that cutout. Applying the app-wide --sal/--sar
+ * to the whole row therefore produces the visibly asymmetric layout.
+ *
+ * Keep landscape controls symmetric. Portrait fullscreen only keeps the physical
+ * top/bottom cutout inset, where a centered notch can actually overlap the row.
+ */
+.ink-video-top-chrome {
+  padding: 0.5rem 0.625rem 2rem;
+}
+
+.ink-video-bottom-chrome {
+  padding: 3rem 1rem 0.25rem;
+}
+
+@media (orientation: portrait) {
+  [data-video-fullscreen='true'] .ink-video-top-chrome {
+    padding-top: calc(var(--video-sat, 0px) + 0.5rem);
+  }
+
+  [data-video-fullscreen='true'] .ink-video-bottom-chrome {
+    padding-bottom: calc(var(--video-sab, 0px) + 0.5rem);
+  }
+}
+
 /* 视频稿在嗅探完成前也保留真实播放器的空间，避免正文突然上移。 */
 .reader-video-sniff-placeholder,
 .reader-prose [data-media-pending] {
@@ -1391,6 +1440,8 @@ button.reader-youtube-action {
 
 /* 自定义播放器进度条：隐藏原生轨道，只保留可点的拇指区域 */
 .ink-seek {
+  -webkit-appearance: none;
+  appearance: none;
   margin: 0;
   height: 100%;
 }

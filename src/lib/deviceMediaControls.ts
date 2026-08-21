@@ -10,6 +10,7 @@ interface DeviceMediaControlsPlugin {
   setVolume(options: { value: number }): Promise<{ value: number }>
   lockOrientation(options: { orientation: VideoScreenOrientation }): Promise<void>
   unlockOrientation(): Promise<void>
+  setVideoFullscreen(options: { active: boolean }): Promise<void>
 }
 
 /** portrait / landscape 为锁定方向；sensor 跟随设备横竖屏（覆盖系统自动旋转开关） */
@@ -20,6 +21,21 @@ const DeviceMediaControls = registerPlugin<DeviceMediaControlsPlugin>('DeviceMed
 /** 真机才有原生实现；浏览器与未重新编译的旧包都走 Web 兜底。 */
 function nativeAvailable(): boolean {
   return Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('DeviceMediaControls')
+}
+
+/**
+ * Switch the Android Activity into/out of the video immersive state.
+ * Returns false only when the current binary does not expose the native method,
+ * allowing callers to retain a compatibility fallback for older installations.
+ */
+export async function setVideoFullscreen(active: boolean): Promise<boolean> {
+  if (!nativeAvailable()) return false
+  try {
+    await DeviceMediaControls.setVideoFullscreen({ active })
+    return true
+  } catch {
+    return false
+  }
 }
 
 interface LockableScreenOrientation {

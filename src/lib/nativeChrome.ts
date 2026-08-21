@@ -1,4 +1,4 @@
-import { Capacitor } from '@capacitor/core'
+import { Capacitor, SystemBars, SystemBarsStyle } from '@capacitor/core'
 
 import { type ResolvedTheme } from './theme'
 
@@ -20,16 +20,33 @@ function nativeChromeBridge(): NativeChromeBridge | undefined {
 
 /**
  * 隐藏/恢复系统状态栏与导航栏。
- * Android WebView 边到边 + overlays 时，HTML requestFullscreen 只会让状态栏变透明浮层，必须走原生藏栏。
- * JavascriptInterface 不一定是 typeof === 'function'，只做真值判断。
+ *
+ * Capacitor 8 已内置 SystemBars，优先用它控制现代 edge-to-edge Window；
+ * NewsNookNative 同步维护 MainActivity 的沉浸态与 OEM 自愈逻辑。两条路径
+ * 最终都落到 WindowInsetsControllerCompat，重复调用是幂等的。
  */
-export function setNativeFullScreen(fullScreen: boolean): void {
+export async function setNativeFullScreen(fullScreen: boolean): Promise<void> {
   if (typeof document !== 'undefined') {
     document.documentElement.classList.toggle('is-video-fullscreen', fullScreen)
   }
+
+  // 保留项目已有桥：除了立即藏栏，它还会记录 videoFullscreenActive，
+  // 让旋转、重新获焦、Insets 重新分发时继续自愈。JavascriptInterface
+  // 未必能用 typeof === 'function' 判断，因此仍只做真值判断。
   const bridge = nativeChromeBridge()
-  if (bridge?.setFullScreen) {
-    bridge.setFullScreen(fullScreen)
+  try {
+    if (bridge?.setFullScreen) bridge.setFullScreen(fullScreen)
+  } catch {
+    // SystemBars below remains the authoritative Capacitor path.
+  }
+
+  if (!Capacitor.isNativePlatform()) return
+
+  try {
+    if (fullScreen) await SystemBars.hide()
+    else await SystemBars.show()
+  } catch {
+    // 旧安装包或异常原生环境仍由 NewsNookNative 兜底，不打断播放器切换。
   }
 }
 
@@ -37,15 +54,20 @@ export function setNativeFullScreen(fullScreen: boolean): void {
  * 真机系统栏：边到边 + 透明栏，底色由 Web（splash / AppShell safe-area 条）提供。
  *
  * 边到边与透明栏在 MainActivity.onCreate 建立；这里只负责图标颜色跟随主题。
- *
- * 不要走 @capacitor/status-bar：其 setOverlaysWebView（以及插件构造函数）会写
- * 旧版 systemUiVisibility 标志，与 WindowInsetsController 在 Android 15+（targetSdk 35+）
- * 互相干扰，会导致视频全屏时状态栏隐藏失效。
+ * 使用 Capacitor 8 内置 SystemBars，而不是旧的 @capacitor/status-bar。
  */
 export async function applyNativeChrome(theme: ResolvedTheme): Promise<void> {
   if (!Capacitor.isNativePlatform()) return
 
   const effective: ResolvedTheme = isSplashBoot() ? 'dark' : theme
+
+  try {
+    await SystemBars.setStyle({
+      style: effective === 'light' ? SystemBarsStyle.Light : SystemBarsStyle.Dark,
+    })
+  } catch {
+    // 继续走项目自带桥，兼容未同步原生工程的旧安装包。
+  }
 
   try {
     const bridge = nativeChromeBridge()

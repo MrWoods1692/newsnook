@@ -127,6 +127,34 @@ public class DeviceMediaControlsPlugin extends Plugin {
         call.resolve(level((float) audio.getStreamVolume(AudioManager.STREAM_MUSIC) / max));
     }
 
+    /**
+     * Authoritative fullscreen bridge for the custom video player.
+     *
+     * This intentionally lives on a Capacitor plugin instead of relying on a raw
+     * addJavascriptInterface object. The same plugin already owns video orientation,
+     * brightness and volume, so a successful call proves that the request reached
+     * the native Activity before the Web layer promotes the player to fullscreen.
+     */
+    @PluginMethod
+    public void setVideoFullscreen(PluginCall call) {
+        Boolean active = call.getBoolean("active");
+        if (active == null) {
+            call.reject("Missing active state");
+            return;
+        }
+
+        Activity activity = getActivity();
+        if (!(activity instanceof MainActivity)) {
+            call.reject("MainActivity unavailable");
+            return;
+        }
+
+        activity.runOnUiThread(() -> {
+            ((MainActivity) activity).setVideoFullscreen(active);
+            call.resolve();
+        });
+    }
+
     @PluginMethod
     public void lockOrientation(PluginCall call) {
         String orientation = call.getString("orientation");

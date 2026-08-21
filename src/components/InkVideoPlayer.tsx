@@ -36,6 +36,7 @@ import {
   createBrightnessControl,
   createVolumeControl,
   lockVideoScreenOrientation,
+  setVideoFullscreen,
   unlockVideoScreenOrientation,
   type LevelControl,
 } from '../lib/deviceMediaControls'
@@ -812,8 +813,14 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
 
   useEffect(() => {
     if (!immersive) return
-    setNativeFullScreen(true)
-    return () => setNativeFullScreen(false)
+    // Entry/exit are awaited in toggleFullscreen so the Activity transition is
+    // ordered. This cleanup only covers unmount/source replacement while fullscreen.
+    return () => {
+      if (!Capacitor.isNativePlatform()) return
+      void setVideoFullscreen(false).then((applied) => {
+        if (!applied) void setNativeFullScreen(false)
+      })
+    }
   }, [immersive])
 
   /** 进入全屏时对齐当前系统档位，退出时把亮度还给系统。 */
@@ -917,21 +924,43 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     revealControls()
   }
 
+  const enterPlayerFullscreen = async (root: HTMLDivElement) => {
+    // Capacitor owns the Android window. Hide bars before the fixed player is
+    // promoted to fullscreen so there is no frame where transparent system-bar
+    // icons can sit on top of the video. DOM Fullscreen remains web-only.
+    if (Capacitor.isNativePlatform()) {
+      const applied = await setVideoFullscreen(true)
+      if (!applied) await setNativeFullScreen(true)
+      setFallbackFullscreen(true)
+      return
+    }
+
+    try {
+      await root.requestFullscreen()
+    } catch {
+      setFallbackFullscreen(true)
+    }
+  }
+
   const toggleFullscreen = async () => {
     const root = rootRef.current
     if (!root) return
     const exiting = fallbackFullscreen || document.fullscreenElement === root
-    try {
-      if (fallbackFullscreen) {
-        setFallbackFullscreen(false)
-        updateVideoView(DEFAULT_VIDEO_VIEW)
-      } else if (document.fullscreenElement === root) {
-        await document.exitFullscreen()
-      } else {
-        await root.requestFullscreen()
+    if (fallbackFullscreen) {
+      if (Capacitor.isNativePlatform()) {
+        const applied = await setVideoFullscreen(false)
+        if (!applied) await setNativeFullScreen(false)
       }
-    } catch {
-      if (!exiting) setFallbackFullscreen(true)
+      setFallbackFullscreen(false)
+      updateVideoView(DEFAULT_VIDEO_VIEW)
+    } else if (document.fullscreenElement === root) {
+      try {
+        await document.exitFullscreen()
+      } catch {
+        // Keep the current browser fullscreen state if the platform rejects exit.
+      }
+    } else {
+      await enterPlayerFullscreen(root)
     }
 
     if (exiting) {
@@ -940,7 +969,13 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     } else {
       // 默认：横屏视频锁横屏，竖屏视频跟随设备（见 defaultRotationMode）
       const mode = defaultRotationMode(mediaSize.width, mediaSize.height)
-      if (mode) await applyRotationMode(mode)
+      if (mode) {
+        await applyRotationMode(mode)
+        if (Capacitor.isNativePlatform()) {
+          const applied = await setVideoFullscreen(true)
+          if (!applied) await setNativeFullScreen(true)
+        }
+      }
     }
     revealControls()
   }
@@ -1023,11 +1058,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
     if (!root) return
     if (!immersive) {
       // 内嵌态点旋转：先进全屏并套用默认旋转模式，不额外循环
-      try {
-        await root.requestFullscreen()
-      } catch {
-        setFallbackFullscreen(true)
-      }
+      await enterPlayerFullscreen(root)
       const mode = defaultRotationMode(mediaSize.width, mediaSize.height)
       if (mode) await applyRotationMode(mode)
       revealControls()
@@ -1384,6 +1415,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
       // 播放器内的横滑属于播放手势，阅读页的滑动返回不应再接管
       data-video-gestures=""
       data-no-font-pinch=""
+      data-video-fullscreen={immersive ? 'true' : undefined}
       className={`overflow-hidden border border-haze bg-ink-deep ${
         fallbackFullscreen ? 'fixed inset-0 z-[100] border-0' : ''
       } ${
@@ -1444,9 +1476,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
               event.stopPropagation()
               revealControls()
             }}
-            className={`pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-center justify-between bg-gradient-to-b from-black/75 via-black/30 to-transparent pb-8 pl-[calc(var(--sal,0px)+0.625rem)] pr-[calc(var(--sar,0px)+0.625rem)] transition-opacity duration-200 ${
-              immersive ? 'pt-[calc(var(--sat,0px)+0.5rem)]' : 'pt-2'
-            } ${showChrome ? 'opacity-100' : 'opacity-0'}`}
+            className={`ink-video-top-chrome pointer-events-none absolute inset-x-0 top-0 z-[6] flex items-center justify-between bg-gradient-to-b from-black/75 via-black/30 to-transparent transition-opacity duration-200 ${showChrome ? 'opacity-100' : 'opacity-0'}`}
           >
             <div className={`flex items-center gap-1 ${showChrome ? 'pointer-events-auto' : ''}`}>
               {immersive && (
@@ -1538,11 +1568,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
               event.stopPropagation()
               revealControls()
             }}
-            className={`pointer-events-none absolute inset-x-0 bottom-0 z-[3] bg-gradient-to-t from-black/95 via-black/50 to-transparent pl-[calc(var(--sal,0px)+1rem)] pr-[calc(var(--sar,0px)+1rem)] pt-12 transition-opacity duration-200 ${
-              immersive
-                ? 'pb-[calc(var(--sab,0px)+0.5rem)]'
-                : 'pb-1'
-            } ${showChrome ? 'opacity-100' : 'opacity-0'}`}
+            className={`ink-video-bottom-chrome pointer-events-none absolute inset-x-0 bottom-0 z-[3] bg-gradient-to-t from-black/95 via-black/50 to-transparent transition-opacity duration-200 ${showChrome ? 'opacity-100' : 'opacity-0'}`}
           >
             {/* Seek Bar Row */}
             <div className={`flex items-center gap-3 mb-1 touch-none ${showChrome ? 'pointer-events-auto' : ''}`}>
@@ -1550,7 +1576,7 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
                 {formatTime(current)}
               </span>
               <div className="relative flex-1 h-5 flex items-center">
-                <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-[3px] overflow-hidden rounded-full bg-paper/20">
+                <div className="ink-video-y-center absolute inset-x-0 h-[3px] overflow-hidden rounded-full bg-paper/20">
                   <div
                     className="absolute inset-y-0 left-0 bg-paper/40"
                     style={{ width: `${bufferRatio * 100}%` }}
@@ -1560,11 +1586,6 @@ function InkVideoPlayerReady({ src, poster, title, format, sourcePage, requestHe
                     style={{ width: `${progress * 100}%` }}
                   />
                 </div>
-                {/* Thumb dot */}
-                <div 
-                  className="absolute top-1/2 -translate-y-1/2 h-3 w-3 -ml-[6px] rounded-full bg-paper shadow pointer-events-none"
-                  style={{ left: `${progress * 100}%` }}
-                />
                 <input
                   type="range"
                   min={0}

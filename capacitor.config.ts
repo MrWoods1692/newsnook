@@ -11,7 +11,14 @@ const config: CapacitorConfig = {
     allowMixedContent: true,
     webContentsDebuggingEnabled: false,
   },
-  plugins: {},
+  plugins: {
+    SystemBars: {
+      // NewsNook already owns safe-area propagation through MainActivity.
+      // Disable Capacitor's second inset/padding layer, especially on Android
+      // 15+ with WebView < 140, where it pads the WebView parent itself.
+      insetsHandling: 'disable',
+    },
+  },
 }
 
 export default config
