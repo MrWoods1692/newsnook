@@ -65,6 +65,7 @@
     "test:high-signal": "npx tsx scripts/high-signal-sources.test.ts",
     "test:eink": "npx tsx scripts/eink-mode.test.ts",
     "test:native-fullscreen": "npx tsx scripts/native-fullscreen.test.ts",
+    "test:battery-status": "npx tsx scripts/battery-status.test.ts",
     "test:theme": "npx tsx scripts/theme-schemes.test.ts",
     "test:logger": "npx tsx scripts/logger.test.ts",
     "test:wifi-media": "npx tsx scripts/wifi-only-media.test.ts",

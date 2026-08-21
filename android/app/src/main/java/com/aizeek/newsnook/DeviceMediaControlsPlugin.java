@@ -2,8 +2,11 @@ package com.aizeek.newsnook;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.media.AudioManager;
+import android.os.BatteryManager;
 import android.provider.Settings;
 import android.view.Window;
 import android.view.WindowManager;
@@ -78,6 +81,38 @@ public class DeviceMediaControlsPlugin extends Plugin {
             window.setAttributes(params);
             call.resolve();
         });
+    }
+
+    /**
+     * Sticky ACTION_BATTERY_CHANGED — no runtime permission required.
+     * level is 0–1 to match the Web Battery Status API.
+     */
+    @PluginMethod
+    public void getBattery(PluginCall call) {
+        Context context = getContext();
+        if (context == null) {
+            call.reject("Context 不可用");
+            return;
+        }
+
+        Intent status = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (status == null) {
+            call.reject("无法读取电池状态");
+            return;
+        }
+
+        int rawLevel = status.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
+        int scale = status.getIntExtra(BatteryManager.EXTRA_SCALE, -1);
+        int batteryStatus = status.getIntExtra(BatteryManager.EXTRA_STATUS, BatteryManager.BATTERY_STATUS_UNKNOWN);
+        boolean charging =
+            batteryStatus == BatteryManager.BATTERY_STATUS_CHARGING
+                || batteryStatus == BatteryManager.BATTERY_STATUS_FULL;
+
+        float ratio = (rawLevel >= 0 && scale > 0) ? clamp01(rawLevel / (float) scale) : 0f;
+        JSObject result = new JSObject();
+        result.put("level", ratio);
+        result.put("charging", charging);
+        call.resolve(result);
     }
 
     @PluginMethod

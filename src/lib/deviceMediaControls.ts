@@ -8,6 +8,7 @@ interface DeviceMediaControlsPlugin {
   clearBrightness(): Promise<void>
   getVolume(): Promise<{ value: number }>
   setVolume(options: { value: number }): Promise<{ value: number }>
+  getBattery(): Promise<{ level: number; charging: boolean }>
   lockOrientation(options: { orientation: VideoScreenOrientation }): Promise<void>
   unlockOrientation(): Promise<void>
   setVideoFullscreen(options: { active: boolean }): Promise<void>
@@ -228,5 +229,19 @@ export function createVolumeControl(
       }
     },
     release() {},
+  }
+}
+
+/** Sticky battery intent; returns null on Web / older APKs without getBattery. */
+export async function getNativeBattery(): Promise<{ level: number; charging: boolean } | null> {
+  if (!nativeAvailable()) return null
+  try {
+    const result = await DeviceMediaControls.getBattery()
+    return {
+      level: clampLevel(result.level),
+      charging: Boolean(result.charging),
+    }
+  } catch {
+    return null
   }
 }
