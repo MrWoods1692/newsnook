@@ -37,3 +37,4 @@ artifacts/
 .worktrees/
 third-party/
 logs/
+*.patch
