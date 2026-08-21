@@ -24,6 +24,7 @@ import {
   parseSourcePayload,
   zhihuEditionDate,
 } from '../lib/parseFeed'
+import { parseSourceArticles } from '../lib/sourceArticles'
 import {
   loadCachedList,
   saveCachedArticles,
@@ -67,41 +68,6 @@ interface FeedsResult {
 
 /** Keep one slow source from holding the whole refresh UI indefinitely. */
 const REFRESH_TIMEOUT_MS = 25_000
-
-async function parseSourceArticles(
-  source: NewsSource,
-  payload: string,
-  signal?: AbortSignal,
-): Promise<Article[]> {
-  const articles = parseSourcePayload(source, payload)
-  if (!articles.length) return articles
-  if (source.kind === 'latepost') {
-    return enrichLatepostDates(
-      articles,
-      (url, fetchSignal) => fetchAbsoluteText(url, { signal: fetchSignal }),
-      signal,
-    )
-  }
-  if (source.kind === 'jazzyear') {
-    return enrichJazzyearDates(
-      articles,
-      (url, fetchSignal) => fetchAbsoluteText(url, { signal: fetchSignal }),
-      signal,
-    )
-  }
-  if (source.kind === 'paulgraham') {
-    return enrichPaulGrahamDates(
-      articles,
-      (url, fetchSignal) => fetchAbsoluteText(url, { signal: fetchSignal }),
-      signal,
-    )
-  }
-  if (source.frameworkHint?.categories?.length) {
-    const catUrls = new Set(source.frameworkHint.categories.map((c) => c.url))
-    return articles.filter((a) => !catUrls.has(a.originUrl))
-  }
-  return articles
-}
 
 /** 列表先上屏，详情日期在后台补全后写回（不阻塞刷新完成态） */
 function scheduleDetailDateEnrichment(

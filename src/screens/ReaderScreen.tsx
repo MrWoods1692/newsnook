@@ -16,6 +16,7 @@ import {
   type OriginPlayerCloseHandle,
 } from '../components/OriginPlayerSurface'
 import { shouldUseOriginPlayerSurface } from '../features/mediaSniffer/originPlayerGate'
+import { loadPrestoredBody } from '../features/prestore/store'
 import { loadCachedBody, saveCachedBody } from '../lib/bodyCache'
 import { addVolumePageTurnListener, setVolumePageTurnEnabled } from '../lib/volumePageTurn'
 import { useEdgeSwipeBack } from '../hooks/useEdgeSwipeBack'
@@ -418,47 +419,67 @@ export function ReaderScreen({
     setResolvedOriginUrl(undefined)
     setResolvedTitle(undefined)
     setFromCache(false)
-    resolveArticleBody(
-      retryToken > 0 && article.videoUrl
-        ? { ...article, videoUrl: undefined }
-        : article,
-      controller.signal,
-      customSources,
-      (resolved) => {
+
+    const loadFromNetwork = () => {
+      void resolveArticleBody(
+        retryToken > 0 && article.videoUrl
+          ? { ...article, videoUrl: undefined }
+          : article,
+        controller.signal,
+        customSources,
+        (resolved) => {
+          if (controller.signal.aborted) return
+          // 正文与媒体嗅探分开：先显示抽取结果，播放器地址稍后增量补上。
+          setHtml(resolved.contentHtml)
+          setResolvedTitle(resolved.title)
+          if (resolved.bodySource !== 'video') {
+            const cached = saveCachedBody(article, {
+              html: resolved.contentHtml,
+              bodySource: resolved.bodySource,
+            })
+            if (cached) onCacheChange()
+          }
+        },
+      )
+        .then((resolved) => {
+          if (controller.signal.aborted) return
+          setHtml(resolved.contentHtml)
+          setBodySource(resolved.bodySource)
+          setResolvedOriginUrl(resolved.resolvedOriginUrl)
+          setResolvedTitle(resolved.title)
+          setLoadState('ready')
+          // 视频稿正文只是占位文案，缓存没有意义
+          if (resolved.bodySource !== 'video') {
+            const cached = saveCachedBody(article, {
+              html: resolved.contentHtml,
+              bodySource: resolved.bodySource,
+            })
+            if (cached) onCacheChange()
+          }
+        })
+        .catch((err: unknown) => {
+          if (controller.signal.aborted) return
+          setError(err instanceof Error ? err.message : '正文加载失败')
+          setLoadState('error')
+        })
+    }
+
+    // 普通正文热缓存优先保持同步首屏；未命中时再读持久预存，最后才联网。
+    if (retryToken === 0 && article.contentType !== 'video') {
+      void loadPrestoredBody(article.id).then((prestored) => {
         if (controller.signal.aborted) return
-        // 正文与媒体嗅探分开：先显示抽取结果，播放器地址稍后增量补上。
-        setHtml(resolved.contentHtml)
-        setResolvedTitle(resolved.title)
-        if (resolved.bodySource !== 'video') {
-          const cached = saveCachedBody(article, {
-            html: resolved.contentHtml,
-            bodySource: resolved.bodySource,
-          })
-          if (cached) onCacheChange()
+        if (prestored) {
+          setHtml(prestored.html)
+          setBodySource(prestored.bodySource)
+          setFromCache(true)
+          setLoadState('ready')
+          return
         }
-      },
-    )
-      .then((resolved) => {
-        if (controller.signal.aborted) return
-        setHtml(resolved.contentHtml)
-        setBodySource(resolved.bodySource)
-        setResolvedOriginUrl(resolved.resolvedOriginUrl)
-        setResolvedTitle(resolved.title)
-        setLoadState('ready')
-        // 视频稿正文只是占位文案，缓存没有意义
-        if (resolved.bodySource !== 'video') {
-          const cached = saveCachedBody(article, {
-            html: resolved.contentHtml,
-            bodySource: resolved.bodySource,
-          })
-          if (cached) onCacheChange()
-        }
+        loadFromNetwork()
       })
-      .catch((err: unknown) => {
-        if (controller.signal.aborted) return
-        setError(err instanceof Error ? err.message : '正文加载失败')
-        setLoadState('error')
-      })
+    } else {
+      loadFromNetwork()
+    }
 
     return () => controller.abort()
   }, [article, customSources, onCacheChange, retryToken])
@@ -858,7 +879,7 @@ export function ReaderScreen({
 
   return (
     <div
-      className="absolute inset-0 z-30 flex flex-col bg-ink"
+      className="absolute inset-0 z-30 flex flex-col"
       style={{
         paddingTop: 'var(--sat)',
         paddingBottom: 'var(--sab)',

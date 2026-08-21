@@ -24,6 +24,8 @@ import type { CategoryId, NewsCategory } from '../sources/categories'
 import { findSource, type NewsSource } from '../sources/registry'
 import { fetchAbsoluteText } from '../lib/http'
 
+const EMPTY_ARTICLE_IDS: ReadonlySet<string> = new Set()
+
 interface Props {
   title: string
   caption: string
@@ -36,6 +38,8 @@ interface Props {
   lastUpdated?: number
   readIds: Set<string>
   laterIds: Set<string>
+  /** 持久预存正文 ID；仅用于低权重云朵状态标记 */
+  prestoredIds?: ReadonlySet<string>
   showLead: boolean
   /** 内容全部来自本地缓存，尚未拿到本次联网结果 */
   offline?: boolean
@@ -82,6 +86,7 @@ function CategoryPeek({
   showLead,
   readIds,
   laterIds,
+  prestoredIds,
   scrollTop = 0,
   onOpen,
 }: {
@@ -89,6 +94,7 @@ function CategoryPeek({
   showLead: boolean
   readIds: Set<string>
   laterIds: Set<string>
+  prestoredIds: ReadonlySet<string>
   scrollTop?: number
   onOpen: (article: Article) => void
 }) {
@@ -135,6 +141,7 @@ function CategoryPeek({
             article={lead}
             read={readIds.has(lead.id)}
             saved={laterIds.has(lead.id)}
+            prestored={prestoredIds.has(lead.id)}
             onOpen={onOpen}
             revealed
             variant="lead"
@@ -153,6 +160,7 @@ function CategoryPeek({
                   article={article}
                   read={readIds.has(article.id)}
                   saved={laterIds.has(article.id)}
+                  prestored={prestoredIds.has(article.id)}
                   onOpen={onOpen}
                   revealed
                   variant="row"
@@ -178,6 +186,7 @@ export const FeedScreen = memo(function FeedScreen({
   lastUpdated,
   readIds,
   laterIds,
+  prestoredIds = EMPTY_ARTICLE_IDS,
   showLead,
   offline,
   categories,
@@ -502,6 +511,7 @@ export const FeedScreen = memo(function FeedScreen({
           article={lead}
           read={readIds.has(lead.id)}
           saved={laterIds.has(lead.id)}
+          prestored={prestoredIds.has(lead.id)}
           translated={translations.get(lead.id)}
           displayMode={activeTranslationPrefs.displayMode}
           onOpen={onOpen}
@@ -598,6 +608,7 @@ export const FeedScreen = memo(function FeedScreen({
                 article={article}
                 read={readIds.has(article.id)}
                 saved={laterIds.has(article.id)}
+                prestored={prestoredIds.has(article.id)}
                 onOpen={onOpen}
                 variant="row"
               />
@@ -614,6 +625,7 @@ export const FeedScreen = memo(function FeedScreen({
                 article={article}
                 read={readIds.has(article.id)}
                 saved={laterIds.has(article.id)}
+                prestored={prestoredIds.has(article.id)}
                 onOpen={onOpen}
                 variant="row"
               />
@@ -678,6 +690,7 @@ export const FeedScreen = memo(function FeedScreen({
                       article={article}
                       read={readIds.has(article.id)}
                       saved={laterIds.has(article.id)}
+                      prestored={prestoredIds.has(article.id)}
                       translated={translations.get(article.id)}
                       displayMode={activeTranslationPrefs.displayMode}
                       onOpen={onOpen}
@@ -694,6 +707,7 @@ export const FeedScreen = memo(function FeedScreen({
                       article={article}
                       read={readIds.has(article.id)}
                       saved={laterIds.has(article.id)}
+                      prestored={prestoredIds.has(article.id)}
                       translated={translations.get(article.id)}
                       displayMode={activeTranslationPrefs.displayMode}
                       onOpen={onOpen}
@@ -950,6 +964,7 @@ export const FeedScreen = memo(function FeedScreen({
                 showLead={showLead}
                 readIds={readIds}
                 laterIds={laterIds}
+                prestoredIds={prestoredIds}
                 scrollTop={scrollByCategory.current[prevCategory.id] ?? 0}
                 onOpen={onOpen}
               />
@@ -992,6 +1007,7 @@ export const FeedScreen = memo(function FeedScreen({
                 showLead={showLead}
                 readIds={readIds}
                 laterIds={laterIds}
+                prestoredIds={prestoredIds}
                 scrollTop={scrollByCategory.current[nextCategory.id] ?? 0}
                 onOpen={onOpen}
               />
