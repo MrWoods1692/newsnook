@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 
 import { reduceLiveObservations } from '../src/features/mediaSniffer/liveCandidate'
 import {
@@ -102,5 +104,32 @@ const withHls = reduceLiveObservations([
 ])
 assert.equal(withHls?.type, 'hls')
 assert.equal(withHls?.url, 'https://cdn.example/index.m3u8')
+
+{
+  const surface = readFileSync(
+    join(process.cwd(), 'src/components/OriginPlayerSurface.tsx'),
+    'utf8',
+  )
+  assert.match(
+    surface,
+    /sessionReadyRef\.current = true/,
+    'must mark live session ready before pushing bounds',
+  )
+  assert.match(
+    surface,
+    /findScrollParents/,
+    'must sync bounds on Reader overflow scroll parents, not only window',
+  )
+  assert.match(
+    surface,
+    /startNativeLiveSniffSession\([\s\S]*?\.then\([\s\S]*?syncAfterNativeReady/,
+    'must push slot bounds after native WebView is created (pre-start calls are no-ops)',
+  )
+  assert.match(
+    surface,
+    /visualViewport/,
+    'must follow visualViewport shifts that move the media slot',
+  )
+}
 
 console.log('origin-player-live-sniff tests passed')

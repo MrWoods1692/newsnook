@@ -30,6 +30,53 @@ interface Props {
   closeHandleRef?: MutableRefObject<OriginPlayerCloseHandle | null>
 }
 
+/** Reader scrolls an overflow div; window capture alone can miss those events on WebView. */
+function findScrollParents(el: HTMLElement): EventTarget[] {
+  const targets: EventTarget[] = [window]
+  let node: HTMLElement | null = el.parentElement
+  while (node) {
+    const style = getComputedStyle(node)
+    const oy = style.overflowY
+    const ox = style.overflowX
+    if (
+      oy === 'auto' ||
+      oy === 'scroll' ||
+      oy === 'overlay' ||
+      ox === 'auto' ||
+      ox === 'scroll' ||
+      ox === 'overlay'
+    ) {
+      targets.push(node)
+    }
+    node = node.parentElement
+  }
+  return targets
+}
+
+function pushLiveSessionBounds(
+  el: HTMLElement,
+  lastKeyRef: { current: string },
+  force = false,
+): void {
+  const rect = el.getBoundingClientRect()
+  if (rect.width < 8 || rect.height < 8) return
+  const key = [
+    rect.left.toFixed(1),
+    rect.top.toFixed(1),
+    rect.width.toFixed(1),
+    rect.height.toFixed(1),
+  ].join(',')
+  if (!force && key === lastKeyRef.current) return
+  lastKeyRef.current = key
+  void setNativeLiveSessionBounds({
+    x: rect.left,
+    y: rect.top,
+    width: rect.width,
+    height: rect.height,
+    cornerRadius: SLOT_CORNER_RADIUS_PX,
+  })
+}
+
 /**
  * Android custom-source video: visible origin WebView (native) + live sniff.
  * Float button switches to InkVideoPlayer only after an eligible descriptor.
@@ -47,6 +94,8 @@ export function OriginPlayerSurface({
   const [sessionError, setSessionError] = useState<string | null>(null)
   const observationsRef = useRef<MediaObservation[]>([])
   const slotRef = useRef<HTMLDivElement | null>(null)
+  const lastBoundsKeyRef = useRef('')
+  const sessionReadyRef = useRef(false)
 
   useEffect(() => {
     if (!closeHandleRef) return
@@ -55,6 +104,11 @@ export function OriginPlayerSurface({
         if (mode !== 'custom') return false
         setMode('origin')
         void setNativeLiveSessionVisible(true)
+        lastBoundsKeyRef.current = ''
+        const el = slotRef.current
+        if (el && sessionReadyRef.current) {
+          pushLiveSessionBounds(el, lastBoundsKeyRef, true)
+        }
         return true
       },
     }
@@ -66,10 +120,19 @@ export function OriginPlayerSurface({
   useEffect(() => {
     let stopped = false
     let stopSession: (() => Promise<void>) | undefined
+    const lateTimers: number[] = []
     observationsRef.current = []
     setCandidate(null)
     setSessionError(null)
     setMode('origin')
+    sessionReadyRef.current = false
+    lastBoundsKeyRef.current = ''
+
+    const syncAfterNativeReady = () => {
+      const el = slotRef.current
+      if (!el || stopped) return
+      pushLiveSessionBounds(el, lastBoundsKeyRef, true)
+    }
 
     void startNativeLiveSniffSession({
       url: pageUrl,
@@ -87,6 +150,16 @@ export function OriginPlayerSurface({
           return
         }
         stopSession = session.stop
+        // Native WebView starts off-screen; bounds calls before this are no-ops.
+        sessionReadyRef.current = true
+        syncAfterNativeReady()
+        requestAnimationFrame(() => {
+          syncAfterNativeReady()
+          requestAnimationFrame(syncAfterNativeReady)
+        })
+        // Title / fonts / reader chrome can shift the slot after first paint.
+        lateTimers.push(window.setTimeout(syncAfterNativeReady, 120))
+        lateTimers.push(window.setTimeout(syncAfterNativeReady, 400))
       })
       .catch(() => {
         if (!stopped) setSessionError('原站播放器未能启动')
@@ -94,6 +167,8 @@ export function OriginPlayerSurface({
 
     return () => {
       stopped = true
+      sessionReadyRef.current = false
+      for (const id of lateTimers) window.clearTimeout(id)
       void stopSession?.()
     }
   }, [pageUrl, referrer])
@@ -103,27 +178,31 @@ export function OriginPlayerSurface({
 
     const syncBounds = () => {
       const el = slotRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      void setNativeLiveSessionBounds({
-        x: rect.left,
-        y: rect.top,
-        width: rect.width,
-        height: rect.height,
-        cornerRadius: SLOT_CORNER_RADIUS_PX,
-      })
+      if (!el || !sessionReadyRef.current) return
+      pushLiveSessionBounds(el, lastBoundsKeyRef)
     }
 
+    lastBoundsKeyRef.current = ''
     syncBounds()
     const el = slotRef.current
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(syncBounds) : null
     if (el && ro) ro.observe(el)
-    window.addEventListener('scroll', syncBounds, true)
+    const scrollTargets = el ? findScrollParents(el) : [window]
+    for (const target of scrollTargets) {
+      target.addEventListener('scroll', syncBounds, { passive: true, capture: true })
+    }
     window.addEventListener('resize', syncBounds)
+    const vv = window.visualViewport
+    vv?.addEventListener('resize', syncBounds)
+    vv?.addEventListener('scroll', syncBounds)
     return () => {
       ro?.disconnect()
-      window.removeEventListener('scroll', syncBounds, true)
+      for (const target of scrollTargets) {
+        target.removeEventListener('scroll', syncBounds, true)
+      }
       window.removeEventListener('resize', syncBounds)
+      vv?.removeEventListener('resize', syncBounds)
+      vv?.removeEventListener('scroll', syncBounds)
     }
   }, [mode, pageUrl])
 
@@ -144,6 +223,11 @@ export function OriginPlayerSurface({
   const backToOrigin = () => {
     setMode('origin')
     void setNativeLiveSessionVisible(true)
+    lastBoundsKeyRef.current = ''
+    const el = slotRef.current
+    if (el && sessionReadyRef.current) {
+      pushLiveSessionBounds(el, lastBoundsKeyRef, true)
+    }
   }
 
   return (
