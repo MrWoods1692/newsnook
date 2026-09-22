@@ -473,6 +473,16 @@ const locallyReadReaction = notificationModel.markLinuxDoNotificationRead([react
 assert.equal(locallyReadReaction[0]?.read, true)
 const staleRefresh = notificationModel.mergeLinuxDoNotifications(locallyReadReaction, [{ ...reactionNotification, read: false }])
 assert.equal(staleRefresh[0]?.read, true, 'a stale refresh must not resurrect an unread Reaction after mark-read')
+const pagedNotifications = notificationModel.mergeLinuxDoNotifications([
+  { ...reactionNotification, id: 300, createdAt: '2026-09-22T03:00:00Z' },
+  { ...reactionNotification, id: 299, createdAt: '2026-09-22T02:00:00Z', read: true },
+], [
+  { ...reactionNotification, id: 298, createdAt: '2026-09-21T23:00:00Z' },
+  { ...reactionNotification, id: 299, createdAt: '2026-09-22T02:00:00Z', read: false },
+  { ...reactionNotification, id: 297, createdAt: '2026-09-21T23:00:00Z' },
+])
+assert.deepEqual(pagedNotifications.map((item: { id: number }) => item.id), [300, 299, 298, 297], 'older notification pages must append chronologically instead of jumping above newer notifications')
+assert.equal(pagedNotifications.find((item: { id: number }) => item.id === 299)?.read, true, 'dedupe must preserve local read=true during pagination races')
 const deletedTargetNotification = { ...reactionNotification, id: 26, topicId: 99999999 }
 assert.equal(notificationModel.markLinuxDoNotificationRead([deletedTargetNotification], 26)[0]?.read, true, 'read state is independent from whether the target topic still exists')
 assert.equal(notificationModel.markAllLinuxDoNotificationsRead([reactionNotification, badgeNotification]).every((item: { read: boolean }) => item.read), true)
@@ -624,7 +634,10 @@ assert.equal(linuxDoEndpoints.userActivity('frank', 0, 1).endsWith('filter=1'), 
 assert.equal(linuxDoEndpoints.userActivity('frank', 0, 6).endsWith('filter=6'), true)
 assert.equal(linuxDoEndpoints.userActivity('frank', 0).includes('filter='), false)
 assert.equal(linuxDoEndpoints.notifications(60, 30).endsWith('/notifications.json?offset=60&limit=30'), true)
+assert.equal(linuxDoEndpoints.notifications().endsWith('/notifications.json?offset=0&limit=60'), true)
 assert.equal(linuxDoEndpoints.notifications(0, 1, 'unread').endsWith('/notifications.json?offset=0&limit=1&filter=unread'), true)
+assert.equal(linuxDoEndpoints.privateMessages('frank', 0), 'https://linux.do/topics/private-messages/frank.json')
+assert.equal(linuxDoEndpoints.privateMessages('frank', 2), 'https://linux.do/topics/private-messages/frank.json?page=2')
 assert.equal(linuxDoEndpoints.markNotificationsRead, 'https://linux.do/notifications/mark-read')
 assert.equal(linuxDoEndpoints.topic('hello', 100, 42).endsWith('/t/hello/100/42.json'), true)
 assert.equal(linuxDoEndpoints.postRaw(501).endsWith('/posts/501/raw'), true)
@@ -1086,6 +1099,42 @@ const fallbackNotificationService = new LinuxDoNotificationService({
   },
 } as any)
 assert.equal(await fallbackNotificationService.unreadCount(), 2, 'unread fallback must count returned unread rows and ignore total_rows_notifications')
+
+const privateMessageCalls: string[] = []
+const privateMessageService = new LinuxDoNotificationService({
+  getJson: async (url: string) => {
+    privateMessageCalls.push(url)
+    const page = url.includes('page=3') ? 3 : 0
+    return {
+      users: [{ id: 7, username: page ? 'bob' : 'alice', avatar_template: '/user_avatar/linux.do/user/{size}/1.png' }],
+      topic_list: {
+        more_topics_url: page === 0 ? '/topics/private-messages/frank.json?page=3' : null,
+        topics: [{
+          id: page === 0 ? 701 : 700,
+          slug: page === 0 ? 'new-pm' : 'older-pm',
+          title: page === 0 ? '最新私信' : '更早私信',
+          posts_count: 3,
+          reply_count: 2,
+          views: 0,
+          like_count: 0,
+          created_at: '2026-09-20T00:00:00Z',
+          last_posted_at: page === 0 ? '2026-09-22T04:00:00Z' : '2026-09-21T04:00:00Z',
+          posters: [{ user_id: 7, description: 'Original Poster' }],
+          unseen: page === 0,
+          unread: page === 0 ? 2 : 0,
+        }],
+      },
+    }
+  },
+} as any)
+const privatePage0 = await privateMessageService.privateMessages('frank')
+assert.equal(privatePage0.items[0]?.id, 701)
+assert.equal(privatePage0.items[0]?.unread, 2)
+assert.equal(privatePage0.nextPage, 3, 'PM inbox must follow the exact page from topic_list.more_topics_url')
+const privatePage1 = await privateMessageService.privateMessages('frank', privatePage0.nextPage)
+assert.equal(privatePage1.items[0]?.id, 700)
+assert.equal(privatePage1.nextPage, undefined)
+assert.deepEqual(privateMessageCalls, [linuxDoEndpoints.privateMessages('frank', 0), linuxDoEndpoints.privateMessages('frank', 3)])
 
 const javaSource = readFileSync('android/app/src/main/java/com/aizeek/newsnook/LinuxDoSessionPlugin.java', 'utf8')
 const authJavaSource = readFileSync('android/app/src/main/java/com/aizeek/newsnook/LinuxDoUserApiAuth.java', 'utf8')
