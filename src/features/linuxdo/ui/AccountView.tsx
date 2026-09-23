@@ -78,8 +78,9 @@ export function AccountView({
   const verifyBrowser = async () => {
     setAccountError('')
     try {
-      await verifyLinuxDoBrowserSession('https://linux.do/')
-      setAccountError('Cloudflare / 浏览器验证已完成。')
+      const next = await verifyLinuxDoBrowserSession('https://linux.do/')
+      applySession(next)
+      setAccountError(next.authenticated ? 'Cloudflare / 浏览器验证已完成。' : '浏览器会话尚未登录，请先登录 Linux.do。')
     } catch (error) {
       setAccountError(readableError(error))
     }

@@ -164,23 +164,38 @@ export type LinuxDoErrorKind =
   | 'auth-required'
   | 'forbidden'
   | 'browser-verification'
+  | 'csrf'
   | 'rate-limited'
   | 'not-found'
   | 'validation'
   | 'server'
   | 'unknown'
 
+export interface LinuxDoRequestDiagnostics {
+  stage: 'csrf' | 'request'
+  method: string
+  path: string
+  status?: number
+  transport?: 'native' | 'browser' | 'web' | 'unknown'
+  responsePath?: string
+  contentType?: string
+  cfMitigated?: string
+  cfRay?: string
+}
+
 export class LinuxDoApiError extends Error {
+  readonly diagnostics?: LinuxDoRequestDiagnostics
   readonly kind: LinuxDoErrorKind
   readonly status?: number
   readonly retryAfterSeconds?: number
 
-  constructor(kind: LinuxDoErrorKind, message: string, status?: number, retryAfterSeconds?: number) {
+  constructor(kind: LinuxDoErrorKind, message: string, status?: number, retryAfterSeconds?: number, diagnostics?: LinuxDoRequestDiagnostics) {
     super(message)
     this.name = 'LinuxDoApiError'
     this.kind = kind
     this.status = status
     this.retryAfterSeconds = retryAfterSeconds
+    this.diagnostics = diagnostics
   }
 }
 

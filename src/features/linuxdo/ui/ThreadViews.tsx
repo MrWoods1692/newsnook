@@ -9,6 +9,7 @@ import type { Point } from '../../../lib/contextActions'
 import { log } from '../../../lib/logger'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import {
+  linuxDoApi,
   linuxDoDiscovery,
   linuxDoDrafts,
   linuxDoInteractions,
@@ -36,6 +37,9 @@ import { CategoryPickerSheet, InsertMenuSheet, TagPickerSheet, TemplatePickerShe
 import { buildComposerDraftData, validateComposer } from '../editor/model'
 import { resolveLinuxDoTemplate, type LinuxDoComposerTemplate, type LinuxDoTemplateVariables } from '../template/service'
 import { LinuxDoReadTracker } from '../topic/readTracker'
+import { verifyLinuxDoBrowserSession } from '../session/native'
+import { ReadSyncStatus } from './ReadSyncStatus'
+import { readSyncDiagnostic, type ReadSyncFailure } from '../topic/readSyncDiagnostic'
 import { applyLinuxDoTopicReadProgress } from '../topic/readState'
 import { LINUXDO_UPLOAD_BATCH_LIMIT } from '../upload/service'
 
@@ -767,6 +771,7 @@ export function LinuxDoTopicView({
   postMutation,
   overlayBackHandlerRef,
   onReadProgress,
+  onSession,
 }: {
   summary: LinuxDoTopicSummary
   session: LinuxDoSessionSnapshot
@@ -783,6 +788,7 @@ export function LinuxDoTopicView({
   postMutation?: LinuxDoPost
   overlayBackHandlerRef: MutableRefObject<(() => boolean) | null>
   onReadProgress?: (topicId: number, highestSeen: number) => void
+  onSession?: (session: LinuxDoSessionSnapshot) => void
 }) {
   const [categoryMap, setCategoryMap] = useState<Record<number, LinuxDoCategory>>(categoriesById ?? {})
   useEffect(() => {
@@ -811,7 +817,8 @@ export function LinuxDoTopicView({
   const toastTimerRef = useRef<number | null>(null)
   const topicScrollerRef = useRef<HTMLDivElement | null>(null)
   const readTrackerRef = useRef<LinuxDoReadTracker | null>(null)
-  const readSyncToastAtRef = useRef(0)
+  const [readSyncFailure, setReadSyncFailure] = useState<ReadSyncFailure | null>(null)
+  const [readSyncBusy, setReadSyncBusy] = useState(false)
   const visibleReadKeyRef = useRef('')
 
   const syncVisibleReadPosts = useCallback(() => {
@@ -820,7 +827,7 @@ export function LinuxDoTopicView({
     if (!root || !tracker) return
     const viewport = root.getBoundingClientRect()
     const visible = new Set<number>()
-    root.querySelectorAll<HTMLElement>('[data-linuxdo-post-number]').forEach((element) => {
+    root.querySelectorAll<HTMLElement>('article[data-linuxdo-post-number]').forEach((element) => {
       const postNumber = Number(element.dataset.linuxdoPostNumber)
       if (!Number.isInteger(postNumber) || postNumber <= 0) return
       const rect = element.getBoundingClientRect()
@@ -945,6 +952,7 @@ export function LinuxDoTopicView({
     setLoading(true)
     setError(null)
     setReadPostNumbers(new Set())
+    setReadSyncFailure(null)
     try {
       const next = await linuxDoTopics.get(summary.slug, summary.id, targetPostNumber)
       setTopic(next)
@@ -968,7 +976,7 @@ export function LinuxDoTopicView({
   }, [load])
 
   useEffect(() => {
-    if (!session.authenticated || !topic?.id) return
+    if (!session.authenticated || !topic?.id || topic.id !== summary.id) return
     const tracker = new LinuxDoReadTracker({
       send: async (batch) => {
         log.sync.info('LinuxDO timings sending', {
@@ -985,8 +993,9 @@ export function LinuxDoTopicView({
         })
       },
       onSent: (topicId, highestSeen, postNumbers) => {
-        log.sync.info('LinuxDO read state applied', { topicId, highestSeen, postNumbers })
         if (readTrackerRef.current === tracker) {
+          log.sync.info('LinuxDO read state applied', { topicId, highestSeen, postNumbers })
+          setReadSyncFailure(null)
           const acknowledged = new Set(postNumbers)
           // Match Discourse topicController.readPosts(): the authoritative post
           // model itself becomes read after /topics/timings succeeds. Keeping the
@@ -1005,6 +1014,8 @@ export function LinuxDoTopicView({
         onReadProgress?.(topicId, highestSeen)
       },
       onError: (nextError, batch, retrying) => {
+        if (readTrackerRef.current !== tracker) return
+        setReadSyncFailure({ error: nextError, batch, retrying })
         const status = nextError instanceof LinuxDoApiError ? nextError.status : undefined
         log.sync.warn('LinuxDO timings failed', {
           topicId: batch.topicId,
@@ -1012,14 +1023,8 @@ export function LinuxDoTopicView({
           status,
           retrying,
           error: readableError(nextError),
+          diagnostics: nextError instanceof LinuxDoApiError ? nextError.diagnostics : undefined,
         })
-        const now = Date.now()
-        if (now - readSyncToastAtRef.current > 12_000) {
-          readSyncToastAtRef.current = now
-          showToast(retrying
-            ? `阅读状态同步暂时失败${status ? `（HTTP ${status}）` : ''}，正在重试`
-            : `阅读状态同步失败${status ? `（HTTP ${status}）` : ''}：${readableError(nextError)}`)
-        }
       },
     })
     readTrackerRef.current = tracker
@@ -1040,7 +1045,7 @@ export function LinuxDoTopicView({
       tracker.stop()
       if (readTrackerRef.current === tracker) readTrackerRef.current = null
     }
-  }, [onReadProgress, session.authenticated, showToast, topic?.id])
+  }, [onReadProgress, session.authenticated, session.currentUser?.id, summary.id, topic?.id])
 
   useEffect(() => {
     if (!session.authenticated || !topic?.id || !posts.length) return
@@ -1054,7 +1059,7 @@ export function LinuxDoTopicView({
         root,
         threshold: [0, 0.2, 0.5, 1],
       })
-      root.querySelectorAll<HTMLElement>('[data-linuxdo-post-number]').forEach((element) => observer?.observe(element))
+      root.querySelectorAll<HTMLElement>('article[data-linuxdo-post-number]').forEach((element) => observer?.observe(element))
     }
     window.addEventListener('resize', syncVisibleReadPosts)
     return () => {
@@ -1102,6 +1107,31 @@ export function LinuxDoTopicView({
     }, 80)
   }, [posts, summary.id, summary.slug])
 
+  const recoverReadSession = async () => {
+    const tracker = readTrackerRef.current
+    if (!tracker || readSyncBusy) return
+    setReadSyncBusy(true)
+    try {
+      const next = await verifyLinuxDoBrowserSession('https://linux.do/')
+      if (!next.authenticated || !next.currentUser) throw new Error('请先完成 Linux.do 登录')
+      if (next.currentUser.id !== session.currentUser?.id) {
+        tracker.stop(false)
+        linuxDoApi.setSession(next)
+        onSession?.(next)
+        onBack()
+        return
+      }
+      linuxDoApi.setSession(next)
+      onSession?.(next)
+      if (readTrackerRef.current === tracker) {
+        setReadSyncFailure(current => current ? { ...current, retrying: true } : null)
+        tracker.resume()
+      }
+    } catch (nextError) {
+      showToast('会话恢复未完成：' + readableError(nextError))
+    } finally { setReadSyncBusy(false) }
+  }
+
   return (
     <div data-linuxdo-topic-view className="flex h-full min-h-0 flex-col">
       <div className="sticky top-0 z-20 flex items-center gap-2 border-b border-haze/50 bg-ink/95 page-x py-2.5 backdrop-blur-xl">
@@ -1135,6 +1165,18 @@ export function LinuxDoTopicView({
         {topic ? <button type="button" onClick={() => onCompose(topic)} className="linuxdo-control inline-flex items-center gap-1.5 rounded-full bg-cinnabar px-3.5 py-2 text-[11.5px] font-medium text-white"><MessageCircle size={13} />回复</button> : null}
       </div>
 
+      {readSyncFailure ? <ReadSyncStatus
+        failure={readSyncFailure}
+        busy={readSyncBusy}
+        onRetry={() => readTrackerRef.current?.resume()}
+        onVerify={() => void recoverReadSession()}
+        onCopy={() => {
+          if (!navigator.clipboard?.writeText) { showToast('复制不可用，请截图保留错误信息'); return }
+          void navigator.clipboard.writeText(readSyncDiagnostic(readSyncFailure))
+            .then(() => showToast('已复制阅读同步诊断'))
+            .catch(() => showToast('复制失败，请截图保留上方错误信息'))
+        }}
+      /> : null}
       <div ref={topicScrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-4" onScroll={(event) => {
         readTrackerRef.current?.scrolled()
         if (typeof IntersectionObserver === 'undefined') syncVisibleReadPosts()
