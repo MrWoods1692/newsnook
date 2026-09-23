@@ -46,7 +46,6 @@ export class LinuxDoTopicService {
         'X-SILENCE-LOGGER': 'true',
         'Discourse-Background': 'true',
       },
-      browserOnly: true,
     })
   }
 

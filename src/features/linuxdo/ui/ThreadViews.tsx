@@ -976,7 +976,7 @@ export function LinuxDoTopicView({
           topicTime: batch.topicTime,
           postNumbers: Object.keys(batch.timings).map(Number),
           timings: batch.timings,
-          transport: 'browser-session',
+          transport: 'session-chain',
         })
         await linuxDoTopics.reportTimings(batch.topicId, batch.topicTime, batch.timings)
         log.sync.info('LinuxDO timings acknowledged', {

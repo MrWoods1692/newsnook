@@ -794,8 +794,8 @@ assert.deepEqual(timingCalls, [{
     'X-SILENCE-LOGGER': 'true',
     'Discourse-Background': 'true',
   },
-  browserOnly: true,
-}], 'topic reading must be reported through the authoritative Discourse timings endpoint using the browser session transport')
+  browserOnly: undefined,
+}], 'topic reading must use the same authenticated request transport as other Linux.do writes; forcing a hidden WebView bypasses the app session and can trigger Cloudflare verification')
 
 let trackerNow = 0
 const trackerBatches: Array<{ topicId: number; topicTime: number; timings: Record<number, number> }> = []
@@ -1584,6 +1584,7 @@ const threadViewsSource = readFileSync(new URL('../src/features/linuxdo/ui/Threa
 assert.match(threadViewsSource, /rounded-xl sm:rounded-2xl border border-haze\/45 bg-ink-raised\/85 p-3 sm:p-4/)
 assert.match(threadViewsSource, /setPosts\(\(current\) => current\.map\(\(post\) => acknowledged\.has\(post\.postNumber\) \? \{ \.\.\.post, read: true \} : post\)\)/)
 assert.match(threadViewsSource, /LinuxDO timings acknowledged/)
+assert.match(threadViewsSource, /transport: 'session-chain'/)
 assert.match(threadViewsSource, /阅读状态同步失败/)
 
 const userWithCdnAvatar = decodeCurrentUser({
