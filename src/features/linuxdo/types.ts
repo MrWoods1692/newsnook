@@ -53,6 +53,10 @@ export interface LinuxDoTopicSummary {
   unseen?: boolean
   unread?: number
   newPosts?: number
+  lastReadPostNumber?: number | null
+  highestPostNumber?: number
+  notificationLevel?: number
+  isSeen?: boolean
   pinned?: boolean
   closed?: boolean
   archived?: boolean
@@ -94,6 +98,8 @@ export interface LinuxDoPost {
   avatarTemplate?: string
   createdAt: string
   updatedAt?: string
+  /** Discourse per-post timing state for the current account. */
+  read?: boolean
   cooked: string
   raw?: string
   replyToPostNumber?: number
@@ -128,6 +134,8 @@ export interface LinuxDoTopic {
   likeCount: number
   createdAt: string
   lastPostedAt: string
+  lastReadPostNumber?: number | null
+  highestPostNumber?: number
   postStream: { stream: number[]; posts: LinuxDoPost[] }
   lastPosterUsername?: string
   details?: {

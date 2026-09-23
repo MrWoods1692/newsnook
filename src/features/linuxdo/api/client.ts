@@ -97,6 +97,14 @@ export class LinuxDoApiClient {
     return this.requestJson<T>(url, { ...options, method: 'POST', form, csrf: options?.csrf ?? true })
   }
 
+  /** POST form endpoint whose successful response may intentionally have an empty body. */
+  async postFormVoid(url: string, form: RequestOptions['form'], options?: Omit<RequestOptions, 'method' | 'body' | 'form'>): Promise<void> {
+    if (options?.auth === 'required' && !this.session.authenticated) {
+      throw new LinuxDoApiError('auth-required', '请先登录 Linux.do', 401)
+    }
+    await this.requestText(url, { ...options, method: 'POST', form, csrf: options?.csrf ?? true })
+  }
+
   async putForm<T>(url: string, form: RequestOptions['form'], options?: Omit<RequestOptions, 'method' | 'body' | 'form'>): Promise<T> {
     return this.requestJson<T>(url, { ...options, method: 'PUT', form, csrf: options?.csrf ?? true })
   }

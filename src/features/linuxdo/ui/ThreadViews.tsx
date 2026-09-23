@@ -34,6 +34,8 @@ import { ComposerEditor, type ComposerEditorHandle, type ComposerUploadVisualIte
 import { CategoryPickerSheet, InsertMenuSheet, TagPickerSheet, TemplatePickerSheet } from '../editor/ComposerSheets'
 import { buildComposerDraftData, validateComposer } from '../editor/model'
 import { resolveLinuxDoTemplate, type LinuxDoComposerTemplate, type LinuxDoTemplateVariables } from '../template/service'
+import { LinuxDoReadTracker } from '../topic/readTracker'
+import { applyLinuxDoTopicReadProgress } from '../topic/readState'
 import { LINUXDO_UPLOAD_BATCH_LIMIT } from '../upload/service'
 
 async function openExternal(url: string): Promise<void> {
@@ -763,6 +765,7 @@ export function LinuxDoTopicView({
   targetPostNumber,
   postMutation,
   overlayBackHandlerRef,
+  onReadProgress,
 }: {
   summary: LinuxDoTopicSummary
   session: LinuxDoSessionSnapshot
@@ -778,6 +781,7 @@ export function LinuxDoTopicView({
   targetPostNumber?: number
   postMutation?: LinuxDoPost
   overlayBackHandlerRef: MutableRefObject<(() => boolean) | null>
+  onReadProgress?: (topicId: number, highestSeen: number) => void
 }) {
   const [categoryMap, setCategoryMap] = useState<Record<number, LinuxDoCategory>>(categoriesById ?? {})
   useEffect(() => {
@@ -800,9 +804,29 @@ export function LinuxDoTopicView({
   const [actionMenu, setActionMenu] = useState<{ anchor: Point; post: LinuxDoPost } | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [pendingPostIds, setPendingPostIds] = useState<Set<number>>(new Set())
+  const [readPostNumbers, setReadPostNumbers] = useState<Set<number>>(new Set())
   const [deleteTarget, setDeleteTarget] = useState<LinuxDoPost | null>(null)
   const [notificationPickerOpen, setNotificationPickerOpen] = useState(false)
   const toastTimerRef = useRef<number | null>(null)
+  const topicScrollerRef = useRef<HTMLDivElement | null>(null)
+  const readTrackerRef = useRef<LinuxDoReadTracker | null>(null)
+
+  const syncVisibleReadPosts = useCallback(() => {
+    const root = topicScrollerRef.current
+    const tracker = readTrackerRef.current
+    if (!root || !tracker) return
+    const viewport = root.getBoundingClientRect()
+    const visible = new Set<number>()
+    root.querySelectorAll<HTMLElement>('[data-linuxdo-post-number]').forEach((element) => {
+      const postNumber = Number(element.dataset.linuxdoPostNumber)
+      if (!Number.isInteger(postNumber) || postNumber <= 0) return
+      const rect = element.getBoundingClientRect()
+      const overlap = Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top)
+      const required = Math.min(32, Math.max(1, rect.height * 0.2))
+      if (overlap >= required) visible.add(postNumber)
+    })
+    tracker.setVisiblePosts(visible)
+  }, [])
 
   const showToast = useCallback((msg: string) => {
     if (toastTimerRef.current != null) window.clearTimeout(toastTimerRef.current)
@@ -912,6 +936,7 @@ export function LinuxDoTopicView({
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setReadPostNumbers(new Set())
     try {
       const next = await linuxDoTopics.get(summary.slug, summary.id, targetPostNumber)
       setTopic(next)
@@ -933,6 +958,66 @@ export function LinuxDoTopicView({
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!session.authenticated || !topic?.id) return
+    const tracker = new LinuxDoReadTracker({
+      send: (batch) => linuxDoTopics.reportTimings(batch.topicId, batch.topicTime, batch.timings),
+      onSent: (topicId, highestSeen, postNumbers) => {
+        if (readTrackerRef.current === tracker) {
+          setReadPostNumbers((current) => {
+            const next = new Set(current)
+            postNumbers.forEach((postNumber) => next.add(postNumber))
+            return next
+          })
+          setTopic((current) => current?.id === topicId ? applyLinuxDoTopicReadProgress(current, highestSeen) : current)
+        }
+        // The parent cache is safe to advance even if this view was just closed:
+        // the server has already accepted the timing batch at this point.
+        onReadProgress?.(topicId, highestSeen)
+      },
+    })
+    readTrackerRef.current = tracker
+    tracker.start(topic.id)
+
+    const syncVisibility = () => tracker.setFocused(document.visibilityState !== 'hidden')
+    const handleFocus = () => tracker.setFocused(document.visibilityState !== 'hidden')
+    const handleBlur = () => tracker.setFocused(false)
+    syncVisibility()
+    document.addEventListener('visibilitychange', syncVisibility)
+    window.addEventListener('focus', handleFocus)
+    window.addEventListener('blur', handleBlur)
+
+    return () => {
+      document.removeEventListener('visibilitychange', syncVisibility)
+      window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('blur', handleBlur)
+      tracker.stop()
+      if (readTrackerRef.current === tracker) readTrackerRef.current = null
+    }
+  }, [onReadProgress, session.authenticated, topic?.id])
+
+  useEffect(() => {
+    if (!session.authenticated || !topic?.id || !posts.length) return
+    const root = topicScrollerRef.current
+    if (!root || !readTrackerRef.current) return
+
+    const frame = window.requestAnimationFrame(syncVisibleReadPosts)
+    let observer: IntersectionObserver | undefined
+    if (typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver(() => syncVisibleReadPosts(), {
+        root,
+        threshold: [0, 0.2, 0.5, 1],
+      })
+      root.querySelectorAll<HTMLElement>('[data-linuxdo-post-number]').forEach((element) => observer?.observe(element))
+    }
+    window.addEventListener('resize', syncVisibleReadPosts)
+    return () => {
+      window.cancelAnimationFrame(frame)
+      observer?.disconnect()
+      window.removeEventListener('resize', syncVisibleReadPosts)
+    }
+  }, [posts, session.authenticated, syncVisibleReadPosts, topic?.id])
 
   useEffect(() => {
     if (!targetPostNumber || !posts.some((post) => post.postNumber === targetPostNumber)) return
@@ -1005,7 +1090,9 @@ export function LinuxDoTopicView({
         {topic ? <button type="button" onClick={() => onCompose(topic)} className="linuxdo-control inline-flex items-center gap-1.5 rounded-full bg-cinnabar px-3.5 py-2 text-[11.5px] font-medium text-white"><MessageCircle size={13} />回复</button> : null}
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-4" onScroll={(event) => {
+      <div ref={topicScrollerRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain page-x pb-4" onScroll={(event) => {
+        readTrackerRef.current?.scrolled()
+        if (typeof IntersectionObserver === 'undefined') syncVisibleReadPosts()
         if (!topic || loadingPosts) return
         const node = event.currentTarget
         if (node.scrollHeight - node.scrollTop - node.clientHeight > 500) return
@@ -1068,9 +1155,11 @@ export function LinuxDoTopicView({
               {posts.map((post) => {
                 const like = post.actions.find((action) => action.id === 2)
                 const replyTarget = resolveReplyTarget(post, posts)
+                const readByServerCursor = post.read === undefined && typeof topic.lastReadPostNumber === 'number' && post.postNumber <= topic.lastReadPostNumber
+                const showUnreadDot = session.authenticated && post.read !== true && !readPostNumbers.has(post.postNumber) && !readByServerCursor
                 const isTopicOwner = (summary?.posters?.[0]?.username && summary.posters[0].username === post.username) || post.postNumber === 1
                 return (
-                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
+                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} data-linuxdo-post-number={post.postNumber} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
                     <header className="linuxdo-control flex items-start gap-2.5 sm:gap-3 select-none">
                       <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
                         {avatar(post.avatarTemplate, post.username)}
@@ -1090,6 +1179,9 @@ export function LinuxDoTopicView({
                           <span className="truncate">{'@' + post.username}</span>
                           <span aria-hidden="true">·</span>
                           <span className="shrink-0">{ago(post.createdAt)}</span>
+                          {showUnreadDot ? (
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 ring-1 ring-sky-400/20 transition-opacity duration-500" role="status" aria-label={'帖子 #' + post.postNumber + ' 未读'} />
+                          ) : null}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5 pt-0.5">

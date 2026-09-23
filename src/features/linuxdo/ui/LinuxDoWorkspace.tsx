@@ -19,6 +19,7 @@ import {
 } from '../runtime'
 import { TopicCard } from './shared'
 import { retryAfterVerification } from './feedModel'
+import { applyLinuxDoReadProgress, linuxDoTopicHasUnreadIndicator } from '../topic/readState'
 import type { LinuxDoDiscoveryScope } from './discoveryScope'
 import { linuxDoLoadingLabel } from './loadingModel'
 import { readableError } from './utils'
@@ -525,6 +526,40 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
   const workspaceNoticeTimerRef = useRef<number | null>(null)
   const [workspaceCategories, setWorkspaceCategories] = useState<Record<number, LinuxDoCategory>>({})
 
+  const applyTopicReadProgress = useCallback((topicId: number, highestSeen: number) => {
+    const updateItems = (items: LinuxDoTopicSummary[]) =>
+      items.map((item) => item.id === topicId ? applyLinuxDoReadProgress(item, highestSeen) : item)
+
+    for (const mode of Object.keys(feedCacheRef.current) as LinuxDoFeedMode[]) {
+      const entry = feedCacheRef.current[mode]
+      if (!entry.items.some((item) => item.id === topicId)) continue
+      let items = updateItems(entry.items)
+      if (mode === 'new' || mode === 'unread') {
+        items = items.filter((item) => item.id !== topicId || linuxDoTopicHasUnreadIndicator(item))
+      }
+      feedCacheRef.current[mode] = { ...entry, items }
+    }
+
+    for (const [key, entry] of Object.entries(discoverCacheRef.current.scopes)) {
+      if (!entry.items.some((item) => item.id === topicId)) continue
+      discoverCacheRef.current.scopes[key] = { ...entry, items: updateItems(entry.items) }
+    }
+
+    if (searchCacheRef.current.topics.some((item) => item.id === topicId)) {
+      searchCacheRef.current = {
+        ...searchCacheRef.current,
+        topics: updateItems(searchCacheRef.current.topics),
+      }
+    }
+
+    // /read.json is server-derived; force a fresh page next time rather than
+    // pretending that our cached membership/order is authoritative.
+    feedCacheRef.current.read = emptyFeedCacheEntry()
+    setRoute((current) => current.kind === 'topic' && current.topic.id === topicId
+      ? { ...current, topic: applyLinuxDoReadProgress(current.topic, highestSeen) }
+      : current)
+  }, [])
+
   const resetPersonalizedFeedCaches = useCallback(() => {
     for (const mode of ['new', 'unread', 'posted', 'read', 'bookmarks'] as const) {
       feedCacheRef.current[mode] = emptyFeedCacheEntry()
@@ -698,7 +733,7 @@ export function LinuxDoWorkspace({ onExit, backHandlerRef, presetSwitcher }: Pro
             categoriesById={workspaceCategories}
           />
         ) : route.kind === 'topic' ? (
-          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
+          <LinuxDoTopicView summary={route.topic} session={session} targetPostNumber={route.targetPostNumber} postMutation={topicPostMutation} overlayBackHandlerRef={topicOverlayBackHandlerRef} onReadProgress={applyTopicReadProgress} onBack={() => { if (!goBack()) setRoute({ kind: 'feed', mode: 'latest' }) }} onCompose={(topic, options) => { setComposerTopic(topic); setComposerEditPost(undefined); setComposerInitialRaw(options?.initialRaw || ''); setComposerReplyTo(options?.replyToPostNumber); setComposerOpen(true) }} onBoost={setBoostPost} onOpenUser={(username) => navigate({ kind: 'user', username })} onOpenTopic={(topic, targetPostNumber) => navigate({ kind: 'topic', topic, targetPostNumber })} onOpenTag={(name) => navigate({ kind: 'discover', scope: { kind: 'tag', name } })} onOpenCategory={(category) => navigate({ kind: 'discover', scope: { kind: 'category', category } })} categoriesById={workspaceCategories} onEdit={(topic, post) => {
             setComposerTopic(topic)
             setComposerReplyTo(undefined)
             const openEditor = (raw: string) => { setComposerEditPost({ ...post, raw }); setComposerInitialRaw(raw); setComposerOpen(true) }

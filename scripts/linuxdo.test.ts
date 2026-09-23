@@ -28,6 +28,8 @@ const { LinuxDoSearchService } = await import('../src/features/linuxdo/search/se
 const { createLinuxDoSearchCache } = await import('../src/features/linuxdo/ui/searchCache')
 const { LinuxDoTemplateService, collectLinuxDoTemplateTags, filterLinuxDoTemplates, resolveLinuxDoTemplate } = await import('../src/features/linuxdo/template/service')
 const { LinuxDoNotificationService } = await import('../src/features/linuxdo/notification/service')
+const { LinuxDoTopicService } = await import('../src/features/linuxdo/topic/service')
+const { applyLinuxDoReadProgress, linuxDoTopicReadState } = await import('../src/features/linuxdo/topic/readState')
 const notificationModel = await import('../src/features/linuxdo/notification/model')
 const feedModel = await import('../src/features/linuxdo/ui/feedModel').catch(() => null)
 const discoveryScope = await import('../src/features/linuxdo/ui/discoveryScope').catch(() => null)
@@ -302,6 +304,13 @@ const feed = decodeTopics({
       created_at: '2026-09-20T00:00:00Z',
       last_posted_at: '2026-09-20T01:00:00Z',
       category_id: 9,
+      unseen: false,
+      unread_posts: 3,
+      new_posts: 3,
+      last_read_post_number: 1,
+      highest_post_number: 4,
+      notification_level: 2,
+      is_seen: true,
       tags: ['linux', { id: 'newsnook', name: 'newsnook' }, { text: 'android' }],
       posters: [{ user_id: 1, description: 'Original Poster' }, { user_id: 2, description: 'Most Recent Poster' }],
     }],
@@ -310,6 +319,31 @@ const feed = decodeTopics({
 assert.equal(feed.length, 1)
 assert.equal(feed[0]?.replyCount, 3)
 assert.equal(feed[0]?.posters[1]?.username, 'bob')
+assert.equal(feed[0]?.unread, 3, 'Discourse unread_posts must drive the unread counter')
+assert.equal(feed[0]?.lastReadPostNumber, 1)
+assert.equal(feed[0]?.highestPostNumber, 4)
+assert.equal(feed[0]?.notificationLevel, 2)
+assert.equal(feed[0]?.isSeen, true)
+assert.equal(linuxDoTopicReadState(feed[0]!), 'unread')
+const partiallyReadFeedTopic = applyLinuxDoReadProgress(feed[0]!, 3)
+assert.equal(partiallyReadFeedTopic.unread, 1)
+assert.equal(linuxDoTopicReadState(partiallyReadFeedTopic), 'unread')
+const fullyReadFeedTopic = applyLinuxDoReadProgress(partiallyReadFeedTopic, 4)
+assert.equal(fullyReadFeedTopic.unread, 0)
+assert.equal(linuxDoTopicReadState(fullyReadFeedTopic), 'read')
+const freshRegularTopic = {
+  ...feed[0]!,
+  unseen: true,
+  unread: 0,
+  newPosts: 1,
+  lastReadPostNumber: null,
+  highestPostNumber: 4,
+  notificationLevel: undefined,
+  isSeen: false,
+}
+assert.equal(linuxDoTopicReadState(freshRegularTopic), 'new')
+assert.equal(linuxDoTopicReadState(applyLinuxDoReadProgress(freshRegularTopic, 1)), 'read', 'a regular new topic stops being NEW after its first accepted read timing')
+assert.equal(linuxDoTopicReadState({ ...freshRegularTopic, notificationLevel: 0 }), 'read', 'muted topics must not receive a new/unread indicator')
 assert.deepEqual(feed[0]?.tags, ['linux', 'newsnook', 'android'])
 assert.deepEqual(decodeTagNames([{ id: 'ai', text: 'AI' }, { name: 'dev' }, 'news']), ['AI', 'dev', 'news'])
 assert.equal(decodeTagNames([{ foo: 'bar' }]).includes('[object Object]'), false)
@@ -324,6 +358,8 @@ const topic = decodeTopic({
   like_count: 5,
   created_at: '2026-09-20T00:00:00Z',
   last_posted_at: '2026-09-20T01:00:00Z',
+  last_read_post_number: 1,
+  highest_post_number: 2,
   last_poster_username: 'bob',
   tags: [{ id: 'linux', name: 'linux' }, { text: 'guide' }],
   details: {
@@ -339,6 +375,7 @@ const topic = decodeTopic({
       username: 'alice',
       cooked: '<p>Hello <img src=x onerror="alert(1)"></p><script>alert(1)</script>',
       created_at: '2026-09-20T00:00:00Z',
+      read: false,
       reply_to_post_number: 1,
       reply_to_user: {
         id: 2,
@@ -375,9 +412,12 @@ const topic = decodeTopic({
 })
 assert.equal(topic.postStream.stream.length, 2)
 assert.equal(topic.lastPosterUsername, 'bob')
+assert.equal(topic.lastReadPostNumber, 1)
+assert.equal(topic.highestPostNumber, 2)
 assert.equal(topic.details?.createdBy?.username, 'alice')
 assert.equal(topic.details?.createdBy?.name, 'Alice')
 assert.equal(topic.postStream.posts[0]?.actions[0]?.acted, true)
+assert.equal(topic.postStream.posts[0]?.read, false)
 assert.equal(topic.postStream.posts[0]?.bookmarked, true)
 assert.equal(topic.postStream.posts[0]?.bookmarkId, 77)
 assert.equal(topic.postStream.posts[0]?.replyToPostNumber, 1)
@@ -639,6 +679,7 @@ assert.equal(linuxDoEndpoints.notifications(0, 1, 'unread').endsWith('/notificat
 assert.equal(linuxDoEndpoints.privateMessages('frank', 0), 'https://linux.do/topics/private-messages/frank.json')
 assert.equal(linuxDoEndpoints.privateMessages('frank', 2), 'https://linux.do/topics/private-messages/frank.json?page=2')
 assert.equal(linuxDoEndpoints.markNotificationsRead, 'https://linux.do/notifications/mark-read')
+assert.equal(linuxDoEndpoints.topicTimings, 'https://linux.do/topics/timings')
 assert.equal(linuxDoEndpoints.topic('hello', 100, 42).endsWith('/t/hello/100/42.json'), true)
 assert.equal(linuxDoEndpoints.postRaw(501).endsWith('/posts/501/raw'), true)
 assert.equal(linuxDoEndpoints.hot(2), 'https://linux.do/hot.json?page=2')
@@ -687,6 +728,24 @@ assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/unread.json?pa
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/posted.json?page=1' && call.auth === 'required'))
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/read.json?page=1' && call.auth === 'required'))
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/bookmarks.json?page=1' && call.auth === 'required'))
+
+const timingCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
+const topicService = new LinuxDoTopicService({
+  postFormVoid: async (url: string, form: Record<string, unknown>, options?: { auth?: string }) => {
+    timingCalls.push({ url, form, auth: options?.auth })
+  },
+} as any)
+await topicService.reportTimings(100, 2450.9, { 1: 1000.4, 2: 1450.8, 0: 999 })
+assert.deepEqual(timingCalls, [{
+  url: 'https://linux.do/topics/timings',
+  form: {
+    topic_id: 100,
+    topic_time: 2450,
+    'timings[1]': 1000,
+    'timings[2]': 1450,
+  },
+  auth: 'required',
+}], 'topic reading must be reported through the authoritative Discourse timings endpoint')
 
 const boostCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
 const interactionService = new LinuxDoInteractionService({

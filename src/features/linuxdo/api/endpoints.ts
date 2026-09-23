@@ -68,6 +68,7 @@ export const linuxDoEndpoints = {
     return ORIGIN + '/topics/private-messages/' + encodeURIComponent(username) + '.json' + params
   },
   markNotificationsRead: ORIGIN + '/notifications/mark-read',
+  topicTimings: ORIGIN + '/topics/timings',
   postsCreate: ORIGIN + '/posts.json',
   post: (id: number) => ORIGIN + '/posts/' + id + '.json',
   postRaw: (id: number) => ORIGIN + '/posts/' + id + '/raw',
