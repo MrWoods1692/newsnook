@@ -806,23 +806,67 @@ const readTracker = new LinuxDoReadTracker({
 })
 readTracker.start(2942004)
 readTracker.setVisiblePosts([1, 2, 3, 4])
-trackerNow = 1006
-;(readTracker as any).tick()
-trackerNow = 2012
+readTracker.scrolled()
+for (trackerNow = 1000; trackerNow <= 4000; trackerNow += 1000) {
+  ;(readTracker as any).tick()
+}
+assert.equal(trackerBatches.length, 0, 'visible posts must not become read before the viewport has settled for five seconds')
+trackerNow = 5000
 ;(readTracker as any).tick()
 await Promise.resolve()
 await Promise.resolve()
-readTracker.stop(false)
 assert.deepEqual(trackerBatches[0], {
   topicId: 2942004,
-  topicTime: 1006,
-  timings: { 1: 1006, 2: 1006, 3: 1006, 4: 1006 },
-}, 'ScreenTrack rush batch must match the payload shape emitted by Linux.do official frontend')
+  topicTime: 5000,
+  timings: { 1: 5000, 2: 5000, 3: 5000, 4: 5000 },
+}, 'a stable five-second viewport must flush the currently visible posts immediately instead of waiting for the 60s fallback')
 assert.deepEqual(trackerSent[0], {
   topicId: 2942004,
   highestSeen: 4,
   posts: [1, 2, 3, 4],
 }, 'read state may advance only after the timings request resolves successfully')
+readTracker.stop(false)
+
+trackerNow = 0
+const scrollingBatches: Array<{ topicId: number; topicTime: number; timings: Record<number, number> }> = []
+const scrollingTracker = new LinuxDoReadTracker({
+  now: () => trackerNow,
+  send: async (batch) => { scrollingBatches.push({ topicId: batch.topicId, topicTime: batch.topicTime, timings: { ...batch.timings } }) },
+})
+scrollingTracker.start(2942004)
+scrollingTracker.setVisiblePosts([1, 2])
+scrollingTracker.scrolled()
+for (trackerNow = 1000; trackerNow <= 3000; trackerNow += 1000) {
+  ;(scrollingTracker as any).tick()
+}
+scrollingTracker.setVisiblePosts([3, 4])
+scrollingTracker.scrolled()
+for (trackerNow = 4000; trackerNow <= 7000; trackerNow += 1000) {
+  ;(scrollingTracker as any).tick()
+}
+assert.equal(scrollingBatches.length, 0, 'scrolling must reset the dwell window and discard transient per-post timings')
+for (trackerNow = 8000; trackerNow <= 9000; trackerNow += 1000) {
+  ;(scrollingTracker as any).tick()
+}
+await Promise.resolve()
+await Promise.resolve()
+assert.deepEqual(scrollingBatches[0]?.timings, { 3: 6000, 4: 6000 }, 'only posts visible after the last scroll settles may be marked read')
+scrollingTracker.stop(false)
+
+trackerNow = 0
+const quickExitBatches: Array<Record<number, number>> = []
+const quickExitTracker = new LinuxDoReadTracker({
+  now: () => trackerNow,
+  send: async (batch) => { quickExitBatches.push({ ...batch.timings }) },
+})
+quickExitTracker.start(2942004)
+quickExitTracker.setVisiblePosts([8, 9])
+quickExitTracker.scrolled()
+trackerNow = 3000
+;(quickExitTracker as any).tick()
+quickExitTracker.stop(true)
+await Promise.resolve()
+assert.equal(quickExitBatches.length, 0, 'leaving before the five-second dwell threshold must not mark briefly viewed posts as read')
 
 const boostCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
 const interactionService = new LinuxDoInteractionService({

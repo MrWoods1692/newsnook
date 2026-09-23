@@ -1,4 +1,5 @@
 const TICK_MS = 1_000
+const READ_SETTLE_MS = 5_000
 const FLUSH_MS = 60_000
 const PAUSE_UNLESS_SCROLLED_MS = 3 * 60_000
 const MAX_TRACKING_PER_POST_MS = 6 * 60_000
@@ -33,7 +34,9 @@ function errorStatus(error: unknown): number | undefined {
  * It mirrors the important behavior of Discourse screen-track:
  * - count time only while the document is focused/visible;
  * - associate elapsed time with posts currently visible on screen;
- * - rush the first unseen timing batch, then flush every minute;
+ * - require the viewport to settle for about five seconds before marking the
+ *   currently visible posts as read (matching Linux.do's observable UX);
+ * - keep the one-minute interval only as a settled-view fallback;
  * - pause after three minutes without scrolling;
  * - cap accumulated timing per post at six minutes;
  * - retry only transient server/rate-limit failures with bounded backoff.
@@ -95,6 +98,13 @@ export class LinuxDoReadTracker {
 
   scrolled(): void {
     this.lastScrolled = this.now()
+    // Do not let posts that merely flashed through the viewport become read
+    // when the user finally stops later. A new stable dwell starts here; the
+    // topic-level timer deliberately keeps running because the user is still
+    // spending time in the topic.
+    for (const postNumber of this.timings.keys()) {
+      this.timings.set(postNumber, 0)
+    }
   }
 
   setFocused(focused: boolean): void {
@@ -106,15 +116,17 @@ export class LinuxDoReadTracker {
   }
 
   /**
-   * Stop sampling. By default the final partial timing is flushed, matching
-   * Discourse when leaving a topic. flush=false is only used internally
-   * before starting a different topic on the same tracker instance.
+   * Stop sampling. A final batch is only sent when the current viewport has
+   * already satisfied the stable-read threshold. Leaving a topic after briefly
+   * flashing past a post must not mark it read.
    */
   stop(flush = true): void {
     if (this.topicId === undefined) return
     if (flush) {
       this.tick()
-      this.flush()
+      if (this.now() - this.lastScrolled >= READ_SETTLE_MS) {
+        this.flushVisiblePosts()
+      }
     }
     if (this.timer) clearInterval(this.timer)
     this.timer = null
@@ -133,29 +145,40 @@ export class LinuxDoReadTracker {
     if (now - this.lastScrolled > PAUSE_UNLESS_SCROLLED_MS) return
 
     this.elapsedSinceFlush += diff
-    const rush = Array.from(this.timings.entries()).some(
-      ([postNumber, timing]) =>
-        timing > 0 && !this.totalTimings.has(postNumber),
-    )
-    if (!this.sending && (this.elapsedSinceFlush > FLUSH_MS || rush)) {
-      this.flush()
+
+    if (this.focused && diff > 0) {
+      this.topicTime += diff
+      for (const postNumber of this.visiblePosts) {
+        this.timings.set(postNumber, (this.timings.get(postNumber) ?? 0) + diff)
+      }
     }
 
-    if (!this.focused || diff <= 0) return
-
-    this.topicTime += diff
-    for (const postNumber of this.visiblePosts) {
-      this.timings.set(postNumber, (this.timings.get(postNumber) ?? 0) + diff)
+    const settledFor = now - this.lastScrolled
+    const viewportSettled = settledFor >= READ_SETTLE_MS
+    const rush = viewportSettled && Array.from(this.timings.entries()).some(
+      ([postNumber, timing]) =>
+        this.visiblePosts.has(postNumber)
+        && timing >= READ_SETTLE_MS
+        && !this.totalTimings.has(postNumber),
+    )
+    const fallback = viewportSettled && this.elapsedSinceFlush > FLUSH_MS
+    if (!this.sending && (rush || fallback)) {
+      this.flushVisiblePosts()
     }
   }
 
-  private flush(): void {
+  private flushVisiblePosts(): void {
+    this.flushTimings(this.visiblePosts)
+  }
+
+  private flushTimings(allowedPosts?: ReadonlySet<number>): void {
     const topicId = this.topicId
     if (!topicId) return
 
     const batchTimings: Record<number, number> = {}
     let highestSeen = 0
     for (const [postNumber, timing] of this.timings) {
+      if (allowedPosts && !allowedPosts.has(postNumber)) continue
       if (timing <= 0) continue
       const total = this.totalTimings.get(postNumber) ?? 0
       const allowance = Math.max(0, MAX_TRACKING_PER_POST_MS - total)
