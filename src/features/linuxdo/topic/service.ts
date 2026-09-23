@@ -40,7 +40,13 @@ export class LinuxDoTopicService {
       form[`timings[${post}]`] = elapsed
     }
     if (Object.keys(form).length <= 2) return
-    await this.api.postFormVoid(linuxDoEndpoints.topicTimings, form, { auth: 'required' })
+    await this.api.postFormVoid(linuxDoEndpoints.topicTimings, form, {
+      auth: 'required',
+      headers: {
+        'X-SILENCE-LOGGER': 'true',
+        'Discourse-Background': 'true',
+      },
+    })
   }
 
   async reply(topicId: number, raw: string, replyToPostNumber?: number): Promise<LinuxDoPost> {

@@ -29,6 +29,7 @@ const { createLinuxDoSearchCache } = await import('../src/features/linuxdo/ui/se
 const { LinuxDoTemplateService, collectLinuxDoTemplateTags, filterLinuxDoTemplates, resolveLinuxDoTemplate } = await import('../src/features/linuxdo/template/service')
 const { LinuxDoNotificationService } = await import('../src/features/linuxdo/notification/service')
 const { LinuxDoTopicService } = await import('../src/features/linuxdo/topic/service')
+const { LinuxDoReadTracker } = await import('../src/features/linuxdo/topic/readTracker')
 const { parseLinuxDoConnectTrustPage } = await import('../src/features/linuxdo/connect/parser')
 const { applyLinuxDoReadProgress, linuxDoTopicReadState } = await import('../src/features/linuxdo/topic/readState')
 const notificationModel = await import('../src/features/linuxdo/notification/model')
@@ -773,10 +774,10 @@ assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/posted.json?pa
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/read.json?page=1' && call.auth === 'required'))
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/bookmarks.json?page=1' && call.auth === 'required'))
 
-const timingCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
+const timingCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string; headers?: Record<string, string> }> = []
 const topicService = new LinuxDoTopicService({
-  postFormVoid: async (url: string, form: Record<string, unknown>, options?: { auth?: string }) => {
-    timingCalls.push({ url, form, auth: options?.auth })
+  postFormVoid: async (url: string, form: Record<string, unknown>, options?: { auth?: string; headers?: Record<string, string> }) => {
+    timingCalls.push({ url, form, auth: options?.auth, headers: options?.headers })
   },
 } as any)
 await topicService.reportTimings(100, 2450.9, { 1: 1000.4, 2: 1450.8, 0: 999 })
@@ -789,7 +790,39 @@ assert.deepEqual(timingCalls, [{
     'timings[2]': 1450,
   },
   auth: 'required',
+  headers: {
+    'X-SILENCE-LOGGER': 'true',
+    'Discourse-Background': 'true',
+  },
 }], 'topic reading must be reported through the authoritative Discourse timings endpoint')
+
+let trackerNow = 0
+const trackerBatches: Array<{ topicId: number; topicTime: number; timings: Record<number, number> }> = []
+const trackerSent: Array<{ topicId: number; highestSeen: number; posts: number[] }> = []
+const readTracker = new LinuxDoReadTracker({
+  now: () => trackerNow,
+  send: async (batch) => { trackerBatches.push({ topicId: batch.topicId, topicTime: batch.topicTime, timings: { ...batch.timings } }) },
+  onSent: (topicId, highestSeen, posts) => trackerSent.push({ topicId, highestSeen, posts }),
+})
+readTracker.start(2942004)
+readTracker.setVisiblePosts([1, 2, 3, 4])
+trackerNow = 1006
+;(readTracker as any).tick()
+trackerNow = 2012
+;(readTracker as any).tick()
+await Promise.resolve()
+await Promise.resolve()
+readTracker.stop(false)
+assert.deepEqual(trackerBatches[0], {
+  topicId: 2942004,
+  topicTime: 1006,
+  timings: { 1: 1006, 2: 1006, 3: 1006, 4: 1006 },
+}, 'ScreenTrack rush batch must match the payload shape emitted by Linux.do official frontend')
+assert.deepEqual(trackerSent[0], {
+  topicId: 2942004,
+  highestSeen: 4,
+  posts: [1, 2, 3, 4],
+}, 'read state may advance only after the timings request resolves successfully')
 
 const boostCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string }> = []
 const interactionService = new LinuxDoInteractionService({
@@ -1321,6 +1354,11 @@ assert.match(authJavaSource, /RSA_ALIAS = "newsnook_linuxdo_user_api_rsa_v2"/)
 assert.match(authJavaSource, /PREF_CLIENT_ID/)
 assert.doesNotMatch(authJavaSource, /java\.time\.Instant/)
 assert.match(clientSource, /authMode !== 'user-api-key'/)
+assert.match(clientSource, /error\.status === 403/)
+assert.match(clientSource, /this\.csrfToken = ''/)
+assert.match(clientSource, /Discourse-Logged-In/)
+assert.match(clientSource, /Discourse-Present/)
+assert.match(clientSource, /Origin: linuxDoEndpoints\.origin/)
 assert.match(javaSource, /call\.reject\(message, code\)/)
 assert.doesNotMatch(javaSource, /call\.reject\(code, message\)/)
 assert.match(javaSource, /handleOnNewIntent\(Intent intent\)/)

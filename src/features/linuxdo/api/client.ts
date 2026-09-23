@@ -11,6 +11,7 @@ interface RequestOptions {
   method?: Method
   body?: Record<string, unknown>
   form?: Record<string, string | number | boolean | Array<string | number> | undefined>
+  headers?: Record<string, string>
   signal?: AbortSignal
   auth?: 'optional' | 'required'
   csrf?: boolean
@@ -102,7 +103,28 @@ export class LinuxDoApiClient {
     if (options?.auth === 'required' && !this.session.authenticated) {
       throw new LinuxDoApiError('auth-required', '请先登录 Linux.do', 401)
     }
-    await this.requestText(url, { ...options, method: 'POST', form, csrf: options?.csrf ?? true })
+    const request: RequestOptions = { ...options, method: 'POST', form, csrf: options?.csrf ?? true }
+    try {
+      await this.requestText(url, request)
+    } catch (error) {
+      // Discourse binds CSRF validity to the active browser session. The session
+      // cookie can rotate after CF/browser transport or normal authenticated
+      // requests while this client still holds the previous CSRF token. Official
+      // Discourse/FluxDO clears BAD CSRF and retries with a freshly fetched token.
+      // /topics/timings is silent background traffic, so without this recovery a
+      // single stale token leaves every post permanently unread with no UI error.
+      if (
+        error instanceof LinuxDoApiError
+        && error.status === 403
+        && request.csrf
+        && this.session.authMode === 'browser-session'
+      ) {
+        this.csrfToken = ''
+        await this.requestText(url, request)
+        return
+      }
+      throw error
+    }
   }
 
   async putForm<T>(url: string, form: RequestOptions['form'], options?: Omit<RequestOptions, 'method' | 'body' | 'form'>): Promise<T> {
@@ -119,6 +141,7 @@ export class LinuxDoApiClient {
       method: 'GET',
       auth: 'required',
       retryRead: true,
+      headers: { 'Cache-Control': 'no-cache' },
     })
     const token = payload?.csrf?.trim()
     if (!token) throw new LinuxDoApiError('auth-required', '无法建立 Linux.do 写入会话')
@@ -144,6 +167,15 @@ export class LinuxDoApiClient {
     const headers: Record<string, string> = {
       Accept: 'application/json, text/plain, */*',
       'X-Requested-With': 'XMLHttpRequest',
+      Origin: linuxDoEndpoints.origin,
+      Referer: linuxDoEndpoints.origin + '/',
+      ...options.headers,
+    }
+    if (this.session.authenticated) {
+      headers['Discourse-Logged-In'] = 'true'
+      if (typeof document === 'undefined' || document.visibilityState !== 'hidden') {
+        headers['Discourse-Present'] = 'true'
+      }
     }
     if (csrf) headers['X-CSRF-Token'] = csrf
 
