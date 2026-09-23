@@ -420,6 +420,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         String method = call.getString("method", "GET").toUpperCase(Locale.ROOT);
         String body = call.getString("body", "");
         JSObject requestHeaders = call.getObject("headers", new JSObject());
+        boolean browserOnly = Boolean.TRUE.equals(call.getBoolean("browserOnly", false));
 
         if (!isApiAllowedUrl(url)) {
             call.reject("只允许请求 linux.do 主站 HTTPS API", "LINUXDO_REQUEST_URL");
@@ -431,6 +432,20 @@ public class LinuxDoSessionPlugin extends Plugin {
         }
 
         getActivity().runOnUiThread(() -> {
+            if (browserOnly) {
+                performBrowserRequest(url, method, requestHeaders, body, new BrowserFetchCallback() {
+                    @Override
+                    public void onSuccess(BrowserFetchResponse response) {
+                        resolveRequest(call, response.status, response.data, response.headers);
+                    }
+
+                    @Override
+                    public void onFailure(String message) {
+                        call.reject(message, "LINUXDO_BROWSER_REQUEST");
+                    }
+                });
+                return;
+            }
             if (preferBrowserTransport) {
                 performBrowserRequest(url, method, requestHeaders, body, new BrowserFetchCallback() {
                     @Override

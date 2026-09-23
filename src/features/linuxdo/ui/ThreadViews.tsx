@@ -6,6 +6,7 @@ import { ImageLightbox } from '../../../components/ImageLightbox'
 import { ContextActionMenu } from '../../../components/ContextActionMenu'
 import { ConfirmDialog, OptionPickerDialog } from '../../../components/ConfirmDialog'
 import type { Point } from '../../../lib/contextActions'
+import { log } from '../../../lib/logger'
 import { useProgressiveImages } from '../../../hooks/useProgressiveImages'
 import {
   linuxDoDiscovery,
@@ -810,6 +811,8 @@ export function LinuxDoTopicView({
   const toastTimerRef = useRef<number | null>(null)
   const topicScrollerRef = useRef<HTMLDivElement | null>(null)
   const readTrackerRef = useRef<LinuxDoReadTracker | null>(null)
+  const readSyncToastAtRef = useRef(0)
+  const visibleReadKeyRef = useRef('')
 
   const syncVisibleReadPosts = useCallback(() => {
     const root = topicScrollerRef.current
@@ -826,6 +829,11 @@ export function LinuxDoTopicView({
       if (overlap >= required) visible.add(postNumber)
     })
     tracker.setVisiblePosts(visible)
+    const key = Array.from(visible).sort((a, b) => a - b).join(',')
+    if (key !== visibleReadKeyRef.current) {
+      visibleReadKeyRef.current = key
+      log.sync.debug('LinuxDO read tracker visible posts', { posts: Array.from(visible).sort((a, b) => a - b) })
+    }
   }, [])
 
   const showToast = useCallback((msg: string) => {
@@ -962,9 +970,29 @@ export function LinuxDoTopicView({
   useEffect(() => {
     if (!session.authenticated || !topic?.id) return
     const tracker = new LinuxDoReadTracker({
-      send: (batch) => linuxDoTopics.reportTimings(batch.topicId, batch.topicTime, batch.timings),
+      send: async (batch) => {
+        log.sync.info('LinuxDO timings sending', {
+          topicId: batch.topicId,
+          topicTime: batch.topicTime,
+          postNumbers: Object.keys(batch.timings).map(Number),
+          timings: batch.timings,
+          transport: 'browser-session',
+        })
+        await linuxDoTopics.reportTimings(batch.topicId, batch.topicTime, batch.timings)
+        log.sync.info('LinuxDO timings acknowledged', {
+          topicId: batch.topicId,
+          postNumbers: Object.keys(batch.timings).map(Number),
+        })
+      },
       onSent: (topicId, highestSeen, postNumbers) => {
+        log.sync.info('LinuxDO read state applied', { topicId, highestSeen, postNumbers })
         if (readTrackerRef.current === tracker) {
+          const acknowledged = new Set(postNumbers)
+          // Match Discourse topicController.readPosts(): the authoritative post
+          // model itself becomes read after /topics/timings succeeds. Keeping the
+          // separate session set as well makes the state robust while pages are
+          // incrementally loaded or reconciled.
+          setPosts((current) => current.map((post) => acknowledged.has(post.postNumber) ? { ...post, read: true } : post))
           setReadPostNumbers((current) => {
             const next = new Set(current)
             postNumbers.forEach((postNumber) => next.add(postNumber))
@@ -975,6 +1003,23 @@ export function LinuxDoTopicView({
         // The parent cache is safe to advance even if this view was just closed:
         // the server has already accepted the timing batch at this point.
         onReadProgress?.(topicId, highestSeen)
+      },
+      onError: (nextError, batch, retrying) => {
+        const status = nextError instanceof LinuxDoApiError ? nextError.status : undefined
+        log.sync.warn('LinuxDO timings failed', {
+          topicId: batch.topicId,
+          postNumbers: Object.keys(batch.timings).map(Number),
+          status,
+          retrying,
+          error: readableError(nextError),
+        })
+        const now = Date.now()
+        if (now - readSyncToastAtRef.current > 12_000) {
+          readSyncToastAtRef.current = now
+          showToast(retrying
+            ? `阅读状态同步暂时失败${status ? `（HTTP ${status}）` : ''}，正在重试`
+            : `阅读状态同步失败${status ? `（HTTP ${status}）` : ''}：${readableError(nextError)}`)
+        }
       },
     })
     readTrackerRef.current = tracker
@@ -995,7 +1040,7 @@ export function LinuxDoTopicView({
       tracker.stop()
       if (readTrackerRef.current === tracker) readTrackerRef.current = null
     }
-  }, [onReadProgress, session.authenticated, topic?.id])
+  }, [onReadProgress, session.authenticated, showToast, topic?.id])
 
   useEffect(() => {
     if (!session.authenticated || !topic?.id || !posts.length) return

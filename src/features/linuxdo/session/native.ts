@@ -9,7 +9,7 @@ interface LinuxDoSessionPlugin {
   clearUserApiKey(): Promise<void>
   snapshot(): Promise<LinuxDoSessionSnapshot>
   browserSnapshot(): Promise<LinuxDoSessionSnapshot>
-  request(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<{ status: number; data: string; headers?: Record<string, string> }>
+  request(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string; browserOnly?: boolean }): Promise<{ status: number; data: string; headers?: Record<string, string> }>
   fetchConnectTrustPage(): Promise<{ status: number; data: string; finalUrl: string; headers?: Record<string, string> }>
   beginUpload(options: { fileName: string; mimeType: string }): Promise<{ uploadId: string }>
   appendUploadChunk(options: { uploadId: string; base64: string }): Promise<{ bytesWritten: number }>
@@ -51,7 +51,7 @@ export async function readLinuxDoBrowserSession(): Promise<LinuxDoSessionSnapsho
   return NativeLinuxDoSession.browserSnapshot()
 }
 
-export async function requestLinuxDoNative(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string }): Promise<{ status: number; data: string; headers?: Record<string, string> }> {
+export async function requestLinuxDoNative(options: { url: string; method: 'GET' | 'POST' | 'PUT' | 'DELETE'; headers?: Record<string, string>; body?: string; browserOnly?: boolean }): Promise<{ status: number; data: string; headers?: Record<string, string> }> {
   if (!Capacitor.isNativePlatform()) throw new Error('Linux.do 原生请求仅可在 App 内使用')
   return NativeLinuxDoSession.request(options)
 }

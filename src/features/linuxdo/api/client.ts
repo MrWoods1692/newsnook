@@ -12,6 +12,7 @@ interface RequestOptions {
   body?: Record<string, unknown>
   form?: Record<string, string | number | boolean | Array<string | number> | undefined>
   headers?: Record<string, string>
+  browserOnly?: boolean
   signal?: AbortSignal
   auth?: 'optional' | 'required'
   csrf?: boolean
@@ -135,13 +136,14 @@ export class LinuxDoApiClient {
     return this.requestJson<T>(url, { ...options, method: 'DELETE', form, csrf: options?.csrf ?? true })
   }
 
-  async csrf(): Promise<string> {
+  async csrf(browserOnly = false): Promise<string> {
     if (this.csrfToken) return this.csrfToken
     const payload = await this.requestJson<{ csrf?: string }>(linuxDoEndpoints.csrf, {
       method: 'GET',
       auth: 'required',
       retryRead: true,
       headers: { 'Cache-Control': 'no-cache' },
+      browserOnly,
     })
     const token = payload?.csrf?.trim()
     if (!token) throw new LinuxDoApiError('auth-required', '无法建立 Linux.do 写入会话')
@@ -163,7 +165,7 @@ export class LinuxDoApiClient {
 
   private async requestText(url: string, options: RequestOptions): Promise<string> {
     const method = options.method ?? 'GET'
-    const csrf = options.csrf && this.session.authMode !== 'user-api-key' ? await this.csrf() : ''
+    const csrf = options.csrf && this.session.authMode !== 'user-api-key' ? await this.csrf(options.browserOnly === true) : ''
     const headers: Record<string, string> = {
       Accept: 'application/json, text/plain, */*',
       'X-Requested-With': 'XMLHttpRequest',
@@ -190,7 +192,7 @@ export class LinuxDoApiClient {
 
     const execute = async () => {
       if (Capacitor.isNativePlatform()) {
-        const response = await requestLinuxDoNative({ url, method, headers, body })
+        const response = await requestLinuxDoNative({ url, method, headers, body, browserOnly: options.browserOnly })
         const responseHeaders = response.headers ?? {}
         const text = typeof response.data === 'string' ? response.data : JSON.stringify(response.data ?? {})
         if (response.status < 200 || response.status >= 300) throw classify(response.status, text, responseHeaders)

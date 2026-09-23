@@ -774,10 +774,10 @@ assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/posted.json?pa
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/read.json?page=1' && call.auth === 'required'))
 assert.ok(feedCalls.some((call) => call.url === 'https://linux.do/bookmarks.json?page=1' && call.auth === 'required'))
 
-const timingCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string; headers?: Record<string, string> }> = []
+const timingCalls: Array<{ url: string; form: Record<string, unknown>; auth?: string; headers?: Record<string, string>; browserOnly?: boolean }> = []
 const topicService = new LinuxDoTopicService({
-  postFormVoid: async (url: string, form: Record<string, unknown>, options?: { auth?: string; headers?: Record<string, string> }) => {
-    timingCalls.push({ url, form, auth: options?.auth, headers: options?.headers })
+  postFormVoid: async (url: string, form: Record<string, unknown>, options?: { auth?: string; headers?: Record<string, string>; browserOnly?: boolean }) => {
+    timingCalls.push({ url, form, auth: options?.auth, headers: options?.headers, browserOnly: options?.browserOnly })
   },
 } as any)
 await topicService.reportTimings(100, 2450.9, { 1: 1000.4, 2: 1450.8, 0: 999 })
@@ -794,7 +794,8 @@ assert.deepEqual(timingCalls, [{
     'X-SILENCE-LOGGER': 'true',
     'Discourse-Background': 'true',
   },
-}], 'topic reading must be reported through the authoritative Discourse timings endpoint')
+  browserOnly: true,
+}], 'topic reading must be reported through the authoritative Discourse timings endpoint using the browser session transport')
 
 let trackerNow = 0
 const trackerBatches: Array<{ topicId: number; topicTime: number; timings: Record<number, number> }> = []
@@ -1354,6 +1355,9 @@ assert.match(javaSource, /definitiveLogout/)
 assert.match(javaSource, /syncResponseCookies\(response\)/)
 assert.match(javaSource, /cf-mitigated/)
 assert.match(javaSource, /preferBrowserTransport/)
+assert.match(javaSource, /boolean browserOnly = Boolean\.TRUE\.equals\(call\.getBoolean\("browserOnly", false\)\)/)
+assert.match(javaSource, /if \(browserOnly\) \{/)
+assert.match(javaSource, /LINUXDO_BROWSER_REQUEST/)
 assert.match(javaSource, /performBrowserRequest/)
 assert.match(javaSource, /BROWSER_BRIDGE_NAME/)
 assert.match(javaSource, /credentials:'include'/)
@@ -1403,6 +1407,8 @@ assert.match(clientSource, /this\.csrfToken = ''/)
 assert.match(clientSource, /Discourse-Logged-In/)
 assert.match(clientSource, /Discourse-Present/)
 assert.match(clientSource, /Origin: linuxDoEndpoints\.origin/)
+assert.match(clientSource, /browserOnly: options\.browserOnly/)
+assert.match(clientSource, /this\.csrf\(options\.browserOnly === true\)/)
 assert.match(javaSource, /call\.reject\(message, code\)/)
 assert.doesNotMatch(javaSource, /call\.reject\(code, message\)/)
 assert.match(javaSource, /handleOnNewIntent\(Intent intent\)/)
@@ -1576,6 +1582,9 @@ assert.match(cssSource, /max-width:\s*860px;/)
 
 const threadViewsSource = readFileSync(new URL('../src/features/linuxdo/ui/ThreadViews.tsx', import.meta.url), 'utf8')
 assert.match(threadViewsSource, /rounded-xl sm:rounded-2xl border border-haze\/45 bg-ink-raised\/85 p-3 sm:p-4/)
+assert.match(threadViewsSource, /setPosts\(\(current\) => current\.map\(\(post\) => acknowledged\.has\(post\.postNumber\) \? \{ \.\.\.post, read: true \} : post\)\)/)
+assert.match(threadViewsSource, /LinuxDO timings acknowledged/)
+assert.match(threadViewsSource, /阅读状态同步失败/)
 
 const userWithCdnAvatar = decodeCurrentUser({
   current_user: {

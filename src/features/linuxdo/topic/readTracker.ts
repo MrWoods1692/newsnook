@@ -19,6 +19,7 @@ interface PendingTimingBatch extends LinuxDoTimingBatch {
 export interface LinuxDoReadTrackerOptions {
   send: (batch: LinuxDoTimingBatch) => Promise<void>
   onSent?: (topicId: number, highestSeen: number, postNumbers: number[]) => void
+  onError?: (error: unknown, batch: LinuxDoTimingBatch, retrying: boolean) => void
   now?: () => number
 }
 
@@ -46,6 +47,7 @@ function errorStatus(error: unknown): number | undefined {
 export class LinuxDoReadTracker {
   private readonly send: LinuxDoReadTrackerOptions['send']
   private readonly onSent?: LinuxDoReadTrackerOptions['onSent']
+  private readonly onError?: LinuxDoReadTrackerOptions['onError']
   private readonly now: () => number
 
   private topicId?: number
@@ -66,6 +68,7 @@ export class LinuxDoReadTracker {
   constructor(options: LinuxDoReadTrackerOptions) {
     this.send = options.send
     this.onSent = options.onSent
+    this.onError = options.onError
     this.now = options.now ?? Date.now
   }
 
@@ -222,7 +225,9 @@ export class LinuxDoReadTracker {
       )
     } catch (error) {
       const status = errorStatus(error)
-      if (status !== undefined && RETRYABLE_STATUSES.has(status)) {
+      const retrying = status !== undefined && RETRYABLE_STATUSES.has(status)
+      this.onError?.(error, next, retrying)
+      if (retrying) {
         this.pending.unshift(next)
         const delay =
           RETRY_DELAYS_MS[Math.min(this.retryCount, RETRY_DELAYS_MS.length - 1)]
