@@ -68,6 +68,8 @@ import org.json.JSONObject;
 public class LinuxDoSessionPlugin extends Plugin {
 
     private static final String ORIGIN = "https://linux.do";
+    private static final String CONNECT_ORIGIN = "https://connect.linux.do";
+    private static final int CONNECT_MAX_REDIRECTS = 8;
     private static final String LOGIN_URL = "https://linux.do/login";
     private static final String SESSION_URL = "https://linux.do/session/current.json";
     private static final String OTP_CSRF_URL = ORIGIN + "/session/csrf.json?newsnook_otp_csrf=1";
@@ -450,6 +452,86 @@ public class LinuxDoSessionPlugin extends Plugin {
             }
             performNativeRequest(call, url, method, requestHeaders, body);
         });
+    }
+
+    @PluginMethod
+    public void fetchConnectTrustPage(PluginCall call) {
+        getActivity().runOnUiThread(() -> performConnectTrustRequest(call, CONNECT_ORIGIN + "/", 0));
+    }
+
+    private void performConnectTrustRequest(PluginCall call, String url, int redirectCount) {
+        if (!isConnectTrustAllowedUrl(url)) {
+            call.reject("Connect 跳转到了非 Linux.do 第一方地址", "LINUXDO_CONNECT_URL");
+            return;
+        }
+        if (redirectCount > CONNECT_MAX_REDIRECTS) {
+            call.reject("Connect 登录跳转次数过多", "LINUXDO_CONNECT_REDIRECT");
+            return;
+        }
+
+        CookieManager manager = CookieManager.getInstance();
+        String cookie = empty(manager.getCookie(url));
+        String userAgent = currentUserAgent();
+        Request.Builder builder = new Request.Builder()
+            .url(url)
+            .get()
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .header("Cache-Control", "no-cache")
+            .header("Referer", CONNECT_ORIGIN + "/");
+        if (!cookie.isEmpty()) builder.header("Cookie", cookie);
+        if (!userAgent.isEmpty()) builder.header("User-Agent", userAgent);
+
+        identityClient.newCall(builder.build()).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call ignored, IOException error) {
+                call.reject("Connect 网络请求失败", "LINUXDO_CONNECT_NETWORK");
+            }
+
+            @Override
+            public void onResponse(Call ignored, Response response) throws IOException {
+                syncResponseCookies(response);
+                int status = response.code();
+                String location = empty(response.header("Location", ""));
+                if (isRedirectStatus(status) && !location.isEmpty()) {
+                    okhttp3.HttpUrl next = response.request().url().resolve(location);
+                    response.close();
+                    if (next == null || !isConnectTrustAllowedUrl(next.toString())) {
+                        call.reject("Connect 返回了不受信任的跳转地址", "LINUXDO_CONNECT_REDIRECT_URL");
+                        return;
+                    }
+                    getActivity().runOnUiThread(() -> performConnectTrustRequest(call, next.toString(), redirectCount + 1));
+                    return;
+                }
+
+                String responseText;
+                try (ResponseBody responseBody = response.body()) {
+                    responseText = responseBody != null ? responseBody.string() : "";
+                }
+                JSObject result = new JSObject();
+                result.put("status", status);
+                result.put("data", responseText);
+                result.put("finalUrl", response.request().url().toString());
+                result.put("headers", safeResponseHeaders(response));
+                call.resolve(result);
+            }
+        });
+    }
+
+    private boolean isRedirectStatus(int status) {
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    private boolean isConnectTrustAllowedUrl(String value) {
+        if (value == null || value.isEmpty()) return false;
+        try {
+            Uri uri = Uri.parse(value);
+            String host = uri.getHost();
+            return "https".equalsIgnoreCase(uri.getScheme())
+                && host != null
+                && (host.equalsIgnoreCase("linux.do") || host.equalsIgnoreCase("connect.linux.do"));
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void performNativeRequest(
@@ -1018,9 +1100,10 @@ public class LinuxDoSessionPlugin extends Plugin {
     private void syncResponseCookies(Response response) {
         java.util.List<String> values = response.headers("Set-Cookie");
         if (values.isEmpty()) return;
+        String cookieUrl = response.request().url().toString();
         getActivity().runOnUiThread(() -> {
             CookieManager manager = CookieManager.getInstance();
-            for (String value : values) manager.setCookie(ORIGIN, value);
+            for (String value : values) manager.setCookie(cookieUrl, value);
             manager.flush();
         });
     }

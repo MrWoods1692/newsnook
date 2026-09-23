@@ -29,6 +29,7 @@ const { createLinuxDoSearchCache } = await import('../src/features/linuxdo/ui/se
 const { LinuxDoTemplateService, collectLinuxDoTemplateTags, filterLinuxDoTemplates, resolveLinuxDoTemplate } = await import('../src/features/linuxdo/template/service')
 const { LinuxDoNotificationService } = await import('../src/features/linuxdo/notification/service')
 const { LinuxDoTopicService } = await import('../src/features/linuxdo/topic/service')
+const { parseLinuxDoConnectTrustPage } = await import('../src/features/linuxdo/connect/parser')
 const { applyLinuxDoReadProgress, linuxDoTopicReadState } = await import('../src/features/linuxdo/topic/readState')
 const notificationModel = await import('../src/features/linuxdo/notification/model')
 const feedModel = await import('../src/features/linuxdo/ui/feedModel').catch(() => null)
@@ -286,6 +287,49 @@ assert.equal(user?.unreadNotifications, 7)
 assert.equal(user?.allUnreadNotificationsCount, 9)
 assert.equal(user?.canUseTemplates, true)
 assert.match(user?.avatarTemplate ?? '', /96/)
+
+const trustFixture = parseLinuxDoConnectTrustPage(`
+  <html><body><div class="card">
+    <div class="card-header"><h2 class="card-title">信任级别 3 的要求</h2><span class="badge badge-success">已达到</span></div>
+    <p class="card-subtitle">@aozix · 过去 100 天内的数据</p>
+    <div class="tl3-ring"><div class="tl3-ring-circle met" style="--val:95;--max:50"><span class="tl3-ring-current">95</span><span class="tl3-ring-target">/ 50</span></div><div class="tl3-ring-label">访问天数</div></div>
+    <div class="tl3-ring"><div class="tl3-ring-circle met" style="--val:1813;--max:500"><span class="tl3-ring-current">1813</span><span class="tl3-ring-target">/ 500</span></div><div class="tl3-ring-label">浏览话题</div></div>
+    <div class="tl3-ring"><div class="tl3-ring-circle met" style="--val:29745;--max:20000"><span class="tl3-ring-current">29745</span><span class="tl3-ring-target">/ 20000</span></div><div class="tl3-ring-label">浏览帖子</div></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">回复话题</span><span class="tl3-bar-nums met">18/10</span></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">点赞</span><span class="tl3-bar-nums met">40/30</span></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">获赞</span><span class="tl3-bar-nums met">490/20</span></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">获赞天数</span><span class="tl3-bar-nums met">70/7</span></div>
+    <div class="tl3-bar-item met"><span class="tl3-bar-label">获赞用户</span><span class="tl3-bar-nums met">436/5</span></div>
+    <div class="tl3-quota-card met"><span class="tl3-quota-label">被举报帖子</span><span class="tl3-quota-nums">0 / 5</span></div>
+    <div class="tl3-quota-card met"><span class="tl3-quota-label">举报用户</span><span class="tl3-quota-nums">0 / 5</span></div>
+    <div class="tl3-veto-item met"><div class="tl3-veto-front"><span class="tl3-veto-label">被禁言</span><span class="tl3-veto-desc">过去 6 个月</span><span class="tl3-veto-value">0</span></div><div class="tl3-veto-back"><span class="tl3-veto-value">9</span></div></div>
+    <div class="tl3-veto-item"><div class="tl3-veto-front"><span class="tl3-veto-label">被封禁</span><span class="tl3-veto-desc">过去 6 个月</span><span class="tl3-veto-value">0</span></div><div class="tl3-veto-back"><span class="tl3-veto-label">被封禁</span><span class="tl3-veto-desc">过去 6 个月</span><span class="tl3-veto-value">1</span></div></div>
+    <p>以上“话题”指主帖，“帖子”即传统意义的回复。</p>
+    <div class="status-met">已达到信任级别 3 要求，请保持。</div>
+  </div></body></html>
+`, 123456)
+assert.equal(trustFixture.title, '信任级别 3 的要求')
+assert.equal(trustFixture.username, 'aozix')
+assert.equal(trustFixture.periodLabel, '过去 100 天内的数据')
+assert.equal(trustFixture.achieved, true)
+assert.equal(trustFixture.activity.length, 3)
+assert.deepEqual(trustFixture.activity.map((item) => [item.label, item.current, item.target]), [
+  ['访问天数', 95, 50],
+  ['浏览话题', 1813, 500],
+  ['浏览帖子', 29745, 20000],
+])
+assert.equal(trustFixture.participation.length, 5)
+assert.equal(trustFixture.compliance.length, 2)
+assert.equal(trustFixture.vetoes[0]?.value, 0, 'met veto must parse the visible front face')
+assert.equal(trustFixture.vetoes[1]?.value, 1, 'unmet veto must parse the visible back face')
+assert.equal(trustFixture.vetoes[1]?.description, '过去 6 个月')
+assert.match(trustFixture.footnote ?? '', /话题.*帖子.*回复/)
+assert.equal(trustFixture.resultText, '已达到信任级别 3 要求，请保持。')
+assert.equal(trustFixture.fetchedAt, 123456)
+assert.throws(
+  () => parseLinuxDoConnectTrustPage('<html><body><form action="/login">登录</form></body></html>'),
+  (error: any) => error?.kind === 'auth-required',
+)
 
 const feed = decodeTopics({
   users: [
@@ -1214,6 +1258,12 @@ assert.equal(javaSource.includes('result.put("key"'), false)
 assert.match(javaSource, /followRedirects\(false\)/)
 assert.match(javaSource, /"Set-Cookie"\.equalsIgnoreCase/)
 assert.match(javaSource, /isApiAllowedUrl/)
+assert.match(javaSource, /CONNECT_ORIGIN = "https:\/\/connect\.linux\.do"/)
+assert.match(javaSource, /fetchConnectTrustPage/)
+assert.match(javaSource, /CONNECT_MAX_REDIRECTS/)
+assert.match(javaSource, /isConnectTrustAllowedUrl/)
+assert.match(javaSource, /manager\.getCookie\(url\)/)
+assert.match(javaSource, /cookieUrl = response\.request\(\)\.url\(\)\.toString\(\)/)
 assert.match(javaSource, /can_use_templates/)
 assert.match(javaSource, /all_unread_notifications_count/)
 assert.match(javaSource, /allUnreadNotificationsCount/)
@@ -1346,6 +1396,10 @@ assert.match(accountViewSource, /账号密码登录（Linux\.do 官方页面）/
 assert.match(accountViewSource, /GitHub \/ Google 等第三方登录/)
 assert.match(accountViewSource, /await authenticateLinuxDo\(\)/)
 assert.match(accountViewSource, /await cancelLinuxDoAuthentication\(\)/)
+assert.match(accountViewSource, /信任等级/)
+assert.match(accountViewSource, /onTrustLevel/)
+assert.match(workspaceSource, /kind: 'trust'/)
+assert.match(workspaceSource, /<TrustLevelView session=\{session\}/)
 assert.doesNotMatch(accountViewSource, /Browser\.open\(\{ url: 'https:\/\/linux\.do\/login'/)
 const cssSource = readFileSync('src/index.css', 'utf8')
 const paragraphCssFixture = parseHTML(
