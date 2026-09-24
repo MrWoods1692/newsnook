@@ -8,6 +8,48 @@ const advance = async (milliseconds: number) => { mock.timers.tick(milliseconds)
 const copy = (batch: LinuxDoTimingBatch) => ({ topicId: batch.topicId, topicTime: batch.topicTime, timings: { ...batch.timings } })
 const tests: Array<[string, () => Promise<void>]> = []
 
+tests.push(['continuous slow scrolling keeps accumulating visible unread posts and rushes them on the one-second screen-track cadence', async () => {
+  const sent: LinuxDoTimingBatch[] = []
+  const tracker = new LinuxDoReadTracker({ send: async batch => { sent.push(copy(batch)) } })
+  try {
+    tracker.start(100)
+    tracker.setVisiblePosts([7, 8, 9])
+    for (let elapsed = 0; elapsed < 2000; elapsed += 250) {
+      tracker.scrolled()
+      await advance(250)
+    }
+    assert.equal(sent.length, 1, 'normal slow scrolling must not wait for a five-second global scroll stop')
+    assert.deepEqual(Object.keys(sent[0].timings).map(Number), [7, 8, 9])
+    assert.ok(sent[0].topicTime >= 900 && sent[0].topicTime <= 2100)
+  } finally { tracker.stop(false) }
+}])
+
+tests.push(['posts that are already read may accumulate timing but do not trigger a rush request by themselves', async () => {
+  const sent: LinuxDoTimingBatch[] = []
+  const tracker = new LinuxDoReadTracker({ send: async batch => { sent.push(copy(batch)) } })
+  try {
+    tracker.start(100)
+    tracker.setVisiblePosts([1, 2], [1, 2])
+    await advance(6000)
+    assert.equal(sent.length, 0, 'read posts should not cause one-second write traffic without a new unread post')
+  } finally { tracker.stop(false) }
+}])
+
+tests.push(['a fast fling across posts between screen-track ticks does not report posts that were never sampled onscreen', async () => {
+  const sent: LinuxDoTimingBatch[] = []
+  const tracker = new LinuxDoReadTracker({ send: async batch => { sent.push(copy(batch)) } })
+  try {
+    tracker.start(100)
+    tracker.setVisiblePosts([1, 2]); tracker.scrolled(); await advance(200)
+    tracker.setVisiblePosts([3, 4]); tracker.scrolled(); await advance(200)
+    tracker.setVisiblePosts([5, 6]); tracker.scrolled(); await advance(200)
+    tracker.setVisiblePosts([20, 21]); tracker.scrolled(); await advance(400)
+    await advance(1000)
+    assert.equal(sent.length, 1)
+    assert.deepEqual(Object.keys(sent[0].timings).map(Number), [20, 21], 'only the posts present at the one-second visibility sample should become readable')
+  } finally { tracker.stop(false) }
+}])
+
 tests.push(['CF 403 pauses without dropping the batch; verification resumes the exact batch', async () => {
   const sent: LinuxDoTimingBatch[] = []; const acknowledgements: number[][] = []
   let verified = false

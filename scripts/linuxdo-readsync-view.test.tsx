@@ -78,7 +78,10 @@ try {
   await advance(5000)
   assert.equal(postRequests, 1)
   assert.equal(unread(), 0, 'real TopicView must remove both blue dots only after the HTTP ACK')
-  console.log('PASS real TopicView: successful ACK removes visible blue dots')
+  const fadedDots = Array.from(host.querySelectorAll<HTMLElement>('[data-linuxdo-unread-dot]'))
+  assert.equal(fadedDots.length, 2, 'acknowledged dots should remain briefly renderable so opacity can animate instead of disappearing abruptly')
+  assert.ok(fadedDots.every(dot => dot.className.includes('opacity-0')), 'acknowledged dots should fade to transparent after ACK')
+  console.log('PASS real TopicView: successful ACK fades visible blue dots')
 
   await act(async () => { root.render(null); await flush() })
   denied = true; postRequests = 0

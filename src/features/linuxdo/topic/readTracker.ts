@@ -1,5 +1,4 @@
 const TICK_MS = 1_000
-const READ_SETTLE_MS = 5_000
 const FLUSH_MS = 60_000
 const PAUSE_UNLESS_SCROLLED_MS = 3 * 60_000
 const MAX_TRACKING_PER_POST_MS = 6 * 60_000
@@ -20,7 +19,14 @@ export interface LinuxDoReadTrackerOptions {
 }
 
 /**
- * Discourse timings protocol with NewsNook's five-second stable-view policy.
+ * Discourse-style screen tracking.
+ *
+ * Visibility is sampled once per second while the topic has focus. Scrolling only
+ * refreshes the three-minute activity timeout; it never clears per-post timings.
+ * A newly observed unread post rushes the accumulated batch on the next tick,
+ * which naturally distinguishes normal reading from a fast fling that never
+ * survives a visibility sample. The 60-second flush is only a fallback.
+ *
  * An unacknowledged batch stays pending. Security/authentication failures pause
  * the queue for explicit session recovery; they never become local read state.
  */
@@ -39,6 +45,8 @@ export class LinuxDoReadTracker {
   private topicTime = 0
   private focused = true
   private visiblePosts = new Set<number>()
+  private readVisiblePosts = new Set<number>()
+  private readPosts = new Set<number>()
   private timings = new Map<number, number>()
   // Reserved duration includes pending batches; this is a budget, NOT read state.
   private totalTimings = new Map<number, number>()
@@ -68,19 +76,23 @@ export class LinuxDoReadTracker {
     this.retryCount = 0
     this.retryNotBefore = 0
     this.totalTimings.clear()
+    this.readPosts.clear()
     this.timer = setInterval(() => this.tick(), TICK_MS)
   }
 
-  setVisiblePosts(postNumbers: Iterable<number>): void {
+  setVisiblePosts(postNumbers: Iterable<number>, readPostNumbers: Iterable<number> = []): void {
     const next = new Set<number>()
     for (const raw of postNumbers) if (Number.isSafeInteger(raw) && raw > 0) next.add(raw)
+    const read = new Set<number>()
+    for (const raw of readPostNumbers) if (Number.isSafeInteger(raw) && raw > 0) read.add(raw)
     this.visiblePosts = next
+    this.readVisiblePosts = read
   }
 
   scrolled(): void {
+    // Match Discourse: scrolling means the reader is still active. It must not
+    // discard timings, otherwise slow continuous reading can never become read.
     this.lastScrolled = this.now()
-    // Reset only unsent short dwell samples, never the retained failed batch.
-    this.timings.clear()
   }
 
   setFocused(focused: boolean): void {
@@ -104,7 +116,7 @@ export class LinuxDoReadTracker {
   stop(flush = true): void {
     if (flush && this.topicId) {
       this.tick()
-      if (this.focused && !this.blocked && !this.sending && this.now() - this.lastScrolled >= READ_SETTLE_MS) this.flushVisiblePosts()
+      if (this.focused && !this.blocked && !this.sending) this.flushTimings()
     }
     if (this.timer) clearInterval(this.timer)
     if (this.retryTimer) clearTimeout(this.retryTimer)
@@ -112,6 +124,8 @@ export class LinuxDoReadTracker {
     this.retryTimer = null
     this.topicId = undefined
     this.visiblePosts.clear()
+    this.readVisiblePosts.clear()
+    this.readPosts.clear()
     this.timings.clear()
     this.topicTime = 0
     this.pending = []
@@ -127,25 +141,36 @@ export class LinuxDoReadTracker {
     this.lastTick = now
     if (!this.focused || now - this.lastScrolled > PAUSE_UNLESS_SCROLLED_MS) return
     this.elapsedSinceFlush += diff
+
+    // Discourse checks whether the previous sample introduced a new unread post
+    // before recording this tick's viewport. With a 1s timer that produces the
+    // observed ~1s request cadence without posting directly from scroll events.
+    if (!this.blocked && !this.sending && !this.retryTimer) {
+      const rush = Array.from(this.timings).some(([post, timing]) =>
+        timing > 0 && !this.totalTimings.has(post) && !this.readPosts.has(post))
+      if (rush || this.elapsedSinceFlush > FLUSH_MS) this.flushTimings()
+    }
+
+    if (!this.sending) void this.sendNext()
+    if (!this.focused) return
+
     this.topicTime += diff
-    for (const post of this.visiblePosts) this.timings.set(post, Math.min(MAX_TRACKING_PER_POST_MS, (this.timings.get(post) ?? 0) + diff))
-    if (this.blocked || this.sending || this.retryTimer) return
-    const settled = now - this.lastScrolled >= READ_SETTLE_MS
-    const rush = settled && Array.from(this.timings).some(([post, timing]) => this.visiblePosts.has(post) && timing >= READ_SETTLE_MS && !this.totalTimings.has(post))
-    if (rush || settled && this.elapsedSinceFlush > FLUSH_MS) this.flushVisiblePosts()
+    for (const post of this.visiblePosts) {
+      this.timings.set(post, Math.min(MAX_TRACKING_PER_POST_MS, (this.timings.get(post) ?? 0) + diff))
+    }
+    for (const post of this.readVisiblePosts) this.readPosts.add(post)
   }
 
-  private flushVisiblePosts(): void {
+  private flushTimings(): void {
     if (!this.topicId || this.blocked) return
     const timings: Record<number, number> = {}
     let highestSeen = 0
-    for (const post of this.visiblePosts) {
-      const duration = this.timings.get(post) ?? 0
+    for (const [post, duration] of this.timings) {
       if (duration <= 0) continue
       const total = this.totalTimings.get(post) ?? 0
       const accepted = Math.min(duration, MAX_TRACKING_PER_POST_MS - total)
-      if (accepted <= 0) continue
       this.timings.set(post, 0)
+      if (accepted <= 0) continue
       this.totalTimings.set(post, total + accepted)
       timings[post] = accepted
       highestSeen = Math.max(highestSeen, post)

@@ -827,15 +827,19 @@ export function LinuxDoTopicView({
     if (!root || !tracker) return
     const viewport = root.getBoundingClientRect()
     const visible = new Set<number>()
+    const readVisible = new Set<number>()
     root.querySelectorAll<HTMLElement>('article[data-linuxdo-post-number]').forEach((element) => {
       const postNumber = Number(element.dataset.linuxdoPostNumber)
       if (!Number.isInteger(postNumber) || postNumber <= 0) return
       const rect = element.getBoundingClientRect()
       const overlap = Math.min(rect.bottom, viewport.bottom) - Math.max(rect.top, viewport.top)
       const required = Math.min(32, Math.max(1, rect.height * 0.2))
-      if (overlap >= required) visible.add(postNumber)
+      if (overlap >= required) {
+        visible.add(postNumber)
+        if (element.dataset.linuxdoRead === 'true') readVisible.add(postNumber)
+      }
     })
-    tracker.setVisiblePosts(visible)
+    tracker.setVisiblePosts(visible, readVisible)
     const key = Array.from(visible).sort((a, b) => a - b).join(',')
     if (key !== visibleReadKeyRef.current) {
       visibleReadKeyRef.current = key
@@ -1246,7 +1250,7 @@ export function LinuxDoTopicView({
                 const showUnreadDot = session.authenticated && post.read !== true && !readPostNumbers.has(post.postNumber) && !readByServerCursor
                 const isTopicOwner = (summary?.posters?.[0]?.username && summary.posters[0].username === post.username) || post.postNumber === 1
                 return (
-                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} data-linuxdo-post-number={post.postNumber} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
+                  <article key={post.id} id={'linuxdo-post-' + post.postNumber} data-linuxdo-post-number={post.postNumber} data-linuxdo-read={showUnreadDot ? 'false' : 'true'} className="group rounded-xl sm:rounded-2xl border border-haze/45 bg-ink-raised/85 p-3 sm:p-4 shadow-[0_1px_3px_rgba(0,0,0,0.03)] backdrop-blur-sm transition-all duration-150 hover:border-haze/70">
                     <header className="linuxdo-control flex items-start gap-2.5 sm:gap-3 select-none">
                       <button type="button" onClick={() => onOpenUser(post.username)} className="relative mt-0.5 flex h-8 w-8 sm:h-9 sm:w-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-1 ring-black/5 dark:ring-white/10 bg-ink-deep transition-transform active:scale-95">
                         {avatar(post.avatarTemplate, post.username)}
@@ -1266,8 +1270,14 @@ export function LinuxDoTopicView({
                           <span className="truncate">{'@' + post.username}</span>
                           <span aria-hidden="true">·</span>
                           <span className="shrink-0">{ago(post.createdAt)}</span>
-                          {showUnreadDot ? (
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 ring-1 ring-sky-400/20 transition-opacity duration-500" role="status" aria-label={'帖子 #' + post.postNumber + ' 未读'} />
+                          {session.authenticated ? (
+                            <span
+                              data-linuxdo-unread-dot
+                              className={'h-1.5 w-1.5 shrink-0 rounded-full bg-sky-400 ring-1 ring-sky-400/20 transition-[opacity,transform] duration-300 ease-out ' + (showUnreadDot ? 'scale-100 opacity-100' : 'scale-75 opacity-0')}
+                              role={showUnreadDot ? 'status' : undefined}
+                              aria-label={showUnreadDot ? '帖子 #' + post.postNumber + ' 未读' : undefined}
+                              aria-hidden={showUnreadDot ? undefined : true}
+                            />
                           ) : null}
                         </div>
                       </div>
