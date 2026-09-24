@@ -178,12 +178,25 @@ assert.deepEqual(portal.categorySources.sports, [
   'netease-football',
   'netease-cn-football',
 ])
-assert.deepEqual(portal.categorySources.intl, ['bbc-zh', 'dw-top', 'theinitium', 'bbc-zh-world'])
+assert.deepEqual(portal.categorySources.intl, [
+  'bbc-zh',
+  'nytimes-zh',
+  'rfi-zh',
+  'dw-top',
+  'ftchinese',
+  'zaobao-world',
+  'theinitium',
+])
 assert.deepEqual(portal.categorySources['intl-world'], [
-  'gnews-world',
-  'scmp-china',
-  'npr',
+  'bbc-world',
+  'dw-en',
+  'nytimes-world',
+  'wsj-world',
+  'nikkei-asia',
+  'channelnewsasia-world',
+  'scmp-news',
   'guardian-world',
+  'aljazeera',
 ])
 assert.ok(portal.categorySources.tech?.includes('netease-auto'))
 assert.ok(portal.categorySources.tech?.includes('ruanyifeng'))
@@ -296,8 +309,9 @@ assert.ok(depth.categorySources['tech-depth-world']?.includes('stratechery'))
 assert.ok(!depth.categorySources['tech-depth']?.includes('quanta'))
 assert.ok(depth.categorySources.intl?.includes('theinitium'))
 assert.ok(!depth.categorySources.intl?.includes('foreign-affairs'))
-assert.ok(depth.categorySources['intl-world']?.includes('foreign-affairs'))
-assert.ok(depth.categorySources['intl-world']?.includes('sinocism'))
+assert.ok(!depth.categorySources['intl-world']?.includes('foreign-affairs'))
+assert.ok(depth.categorySources['intl-depth-world']?.includes('foreign-affairs'))
+assert.ok(depth.categorySources['intl-depth-world']?.includes('sinocism'))
 assert.ok(depth.categorySources['astral-codex-ten']?.includes('astral-codex-ten'))
 assert.ok(depth.categorySources.theue?.includes('theue'))
 assert.ok(depth.categorySources.tech?.includes('v2ex'))
@@ -311,6 +325,7 @@ assert.deepEqual(
     'science',
     'cn-depth',
     'intl-world',
+    'intl-depth-world',
     'tech-depth-world',
     'astral-codex-ten',
     'marginalian',
@@ -325,7 +340,8 @@ assert.ok(biz.categorySources.finance?.includes('netease-biz'))
 assert.ok(biz.categorySources.tech?.includes('netease-auto'))
 assert.ok(biz.categorySources.intl?.includes('dw-top'))
 assert.ok(!biz.categorySources.intl?.includes('bloomberg-opinion'))
-assert.ok(biz.categorySources['intl-world']?.includes('bloomberg-opinion'))
+assert.ok(!biz.categorySources['intl-world']?.includes('bloomberg-opinion'))
+assert.ok(biz.categorySources['intl-depth-world']?.includes('bloomberg-opinion'))
 assert.deepEqual(biz.enabledSourceIds, [])
 assert.ok(biz.hiddenCategoryIds.includes('mix'))
 assert.equal(
@@ -336,9 +352,11 @@ assert.equal(
 const world = normalizeSnapshot(findBuiltinPreset('builtin-world')!.snapshot)
 assert.ok(world.categorySources.intl?.includes('theinitium'))
 assert.ok(world.categorySources.intl?.includes('bbc-zh'))
-assert.ok(world.categorySources.intl?.includes('bbc-zh-china'))
+assert.ok(world.categorySources.intl?.includes('nytimes-zh'))
+assert.ok(world.categorySources.intl?.includes('zaobao-world'))
 assert.ok(!world.categorySources.intl?.includes('foreign-affairs'))
-assert.ok(world.categorySources['intl-world']?.includes('foreign-affairs'))
+assert.ok(!world.categorySources['intl-world']?.includes('foreign-affairs'))
+assert.ok(world.categorySources['intl-depth-world']?.includes('foreign-affairs'))
 assert.ok(world.categorySources['tech-depth-world']?.includes('quanta'))
 assert.ok(!world.categorySources.science?.includes('gnews-science'))
 assert.ok(world.categorySources['science-world']?.includes('gnews-science'))
@@ -441,7 +459,7 @@ const worldApply = activatePreset(migrated, 'builtin-world')!
 const worldPrefs = applySnapshotToPrefs(DEFAULT_PREFERENCES, worldApply.snapshot)
 assert.deepEqual(
   visibleCategories(worldPrefs).map((c) => c.id),
-  ['intl', 'hot', 'science', 'intl-world', 'tech-depth-world', 'science-world'],
+  ['intl', 'hot', 'science', 'intl-world', 'intl-depth-world', 'tech-depth-world', 'science-world'],
 )
 
 const depthApply = activatePreset(migrated, 'builtin-depth')!
@@ -455,6 +473,7 @@ assert.deepEqual(
     'science',
     'cn-depth',
     'intl-world',
+    'intl-depth-world',
     'tech-depth-world',
     'astral-codex-ten',
     'marginalian',

@@ -28,6 +28,7 @@ export type SourceKind =
   | 'uisdc'
   | 'thepaper'
   | 'infzm'
+  | 'zaobao'
   | 'claude-webflow'
   | 'claude-academy'
   | 'openai-cookbook'

@@ -21,6 +21,7 @@ import {
 } from '../categories'
 import {
   SOURCES,
+  canonicalSourceId,
   makeCustomSourceId,
   normalizeSourceKind,
   type NewsSource,
@@ -40,6 +41,15 @@ import {
   type TypographyPrefs,
 } from './model'
 import { describeSources } from './categoryPrefs'
+
+function uniqueValidSourceIds(raw: unknown, knownSourceIds: Set<string>): string[] {
+  if (!Array.isArray(raw)) return []
+  const valid = raw
+    .filter((id): id is string => typeof id === 'string')
+    .map(canonicalSourceId)
+    .filter((id) => knownSourceIds.has(id))
+  return [...new Set(valid)]
+}
 
 /** 读入持久化数据时剔除已下线的分类与信源，避免脏配置导致空列表 */
 export function normalizePreferences(raw: unknown): Preferences {
@@ -103,7 +113,7 @@ export function normalizePreferences(raw: unknown): Preferences {
       const rawShort = typeof item.short === 'string' ? item.short.trim() : ''
       if (!rawId || !rawLabel) return
 
-      const sourceIds = uniqueValid(item.sourceIds, knownSourceIds)
+      const sourceIds = uniqueValidSourceIds(item.sourceIds, knownSourceIds)
       if (!sourceIds.length) return
 
       customCategories.push({
@@ -128,7 +138,7 @@ export function normalizePreferences(raw: unknown): Preferences {
   } else {
     Object.entries(input.categorySources).forEach(([categoryId, sourceIds]) => {
       if (!allCategoryIds.has(categoryId) || isAggregateCategoryId(categoryId)) return
-      const valid = uniqueValid(sourceIds, knownSourceIds)
+      const valid = uniqueValidSourceIds(sourceIds, knownSourceIds)
       categorySources[categoryId] = valid
     })
   }
@@ -174,7 +184,7 @@ export function normalizePreferences(raw: unknown): Preferences {
     hiddenCategoryIds: hidden.length >= allCategoryIds.size ? hidden.slice(1) : hidden,
     categorySources,
     categoryNames,
-    favoriteSourceIds: uniqueValid(input.favoriteSourceIds, knownSourceIds),
+    favoriteSourceIds: uniqueValidSourceIds(input.favoriteSourceIds, knownSourceIds),
     customCategories,
     customSources,
     theme: isThemeMode(input.theme) ? input.theme : DEFAULT_THEME_MODE,

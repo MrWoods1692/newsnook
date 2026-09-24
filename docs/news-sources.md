@@ -72,14 +72,22 @@
 
 | id | kind | 探测要点 |
 |---|---|---|
-| `bbc-zh` `bbc-zh-china` `bbc-zh-world` | feed | 简体 RSS 已 301 → 繁体；china/world 旧 index.xml 停在 2011–2014 归档，统一用 `zhongwen/trad/rss.xml` |
-| `bbc-world` `bbc-business` | feed | feeds.bbci.co.uk 标准 RSS |
+| `bbc-zh` | feed | BBC 中文第一方 RSS；现行源为繁体。旧 china/world 重复源已从注册表移除，持久化旧 ID 会自动迁移到 `bbc-zh` |
+| `nytimes-zh` | feed | 纽约时报中文网第一方 `/rss/`，2026-09-24 实测 `application/xml` 且持续更新 |
+| `rfi-zh` | feed | RFI 中文第一方 `/cn/rss`，`zh-Hans` |
+| `dw-top` | feed | DW 中文 RDF `rss-chi-all`；旧配置误接 `rss-en-top` 已修正 |
+| `ftchinese` | feed | FT中文网第一方 `/rss/feed`，`zh-CN` |
+| `voa-zh` | feed | 美国之音中文网 RSS 页面当前“新闻”聚合源 |
+| `cna-intl-zh` | feed | 中央社官方「国际」RSS（FeedBurner 托管） |
+| `zaobao-world` | zaobao | 联合早报无可用第一方 RSS；解析公开 `/news/world` 服务端 HTML，不依赖 RSSHub / FeedX |
+| `bbc-world` `bbc-business` `dw-en` | feed | BBC / DW 英文第一方 RSS |
+| `nytimes-world` `wsj-world` `nikkei-asia` `channelnewsasia-world` | feed | NYT World、WSJ World、Nikkei Asia、Channel NewsAsia World 第一方 RSS |
 | `gnews-*`（7 个) | google-news | headlines section RSS；跳转链接解码见 `google-news-decode` 测试 |
-| `dw-top` | feed | RDF 格式 |
-| `scmp-china` `scmp-news` | feed | `/rss/4/feed/`、`/rss/91/feed/` |
+| `scmp-china` `scmp-news` | feed | SCMP 官方 RSS；内容为英文，`scmp-china` 表示 China 栏而非中文站 |
 | `npr` `guardian-world` `aljazeera` | feed | 标准 RSS |
 | `france24` | feed | `/en/rss` 已 301 到 HTML 目录页；用仍返回 `application/rss+xml` 的分区源（asia-pacific） |
-| `foreign-affairs` `nyrb` `bloomberg-opinion` `project-syndicate` `sinocism` `theinitium` | feed | 深度长文 / 智库；均标准 RSS，默认关闭 |
+| `foreign-affairs` `nyrb` `bloomberg-opinion` `project-syndicate` `sinocism` | feed | 英文评论 / 智库，单独归「国际英文·深读」 |
+| `theinitium` | feed | 中文深度媒体 RSS，归「国际中文」 |
 
 ### 1.6 科技深度（group `tech`）
 

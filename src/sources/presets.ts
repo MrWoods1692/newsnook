@@ -17,7 +17,7 @@ import {
   type Preferences,
   type CategoryNameOverride,
 } from './preferences'
-import { isCustomSourceId, SOURCES } from './registry'
+import { canonicalSourceId, isCustomSourceId, SOURCES } from './registry'
 
 export const MIGRATE_LAYOUT_PRESET_ID = 'user-migrated-layout'
 export const USER_DEFAULT_LAYOUT_ID = 'user-default-layout'
@@ -72,10 +72,10 @@ function uniqueValid(ids: unknown, known: Set<string>): string[] {
 /** 自建源 id 不在内置注册表里，快照仍需保留，否则分类卡片会变成「未选择信源」 */
 function uniqueValidSourceIds(ids: unknown): string[] {
   if (!Array.isArray(ids)) return []
-  const valid = ids.filter(
-    (id): id is string =>
-      typeof id === 'string' && (KNOWN_SOURCE_IDS.has(id) || isCustomSourceId(id)),
-  )
+  const valid = ids
+    .filter((id): id is string => typeof id === 'string')
+    .map((id) => (isCustomSourceId(id) ? id : canonicalSourceId(id)))
+    .filter((id) => KNOWN_SOURCE_IDS.has(id) || isCustomSourceId(id))
   return [...new Set(valid)]
 }
 
@@ -376,7 +376,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
   (() => {
     const categorySources = {
       theue: pickKnown('theue'),
-      intl: pickKnown('theinitium', 'bbc-zh', 'dw-top'),
+      intl: pickKnown('theinitium', 'nytimes-zh', 'ftchinese', 'rfi-zh', 'bbc-zh', 'dw-top'),
       tech: pickKnown('v2ex', 'ruanyifeng', 'qianhei'),
       science: pickKnown('guokr', 'zhishifenzi', 'netease-fanpu', 'swarma'),
       'cn-depth': pickKnown(
@@ -390,13 +390,13 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
         'infzm-interview',
         'infzm-thinktank',
       ),
-      'intl-world': pickKnown(
+      'intl-world': pickKnown('nytimes-world', 'scmp-china', 'bbc-world'),
+      'intl-depth-world': pickKnown(
         'foreign-affairs',
         'nyrb',
         'bloomberg-opinion',
         'project-syndicate',
         'sinocism',
-        'scmp-china',
       ),
       'tech-depth-world': pickKnown(
         'quanta',
@@ -418,6 +418,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
       'science',
       'cn-depth',
       'intl-world',
+      'intl-depth-world',
       'tech-depth-world',
       'astral-codex-ten',
       'marginalian',
@@ -451,16 +452,12 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
         'netease-stock',
         'eastmoney-news',
       ),
-      intl: pickKnown('theinitium', 'bbc-zh', 'dw-top'),
+      intl: pickKnown('ftchinese', 'nytimes-zh', 'zaobao-world', 'bbc-zh', 'dw-top'),
       tech: pickKnown('geekpark', 'sspai', 'ifanr', 'netease-auto'),
       'ai-media': pickKnown('qbitai', 'aiera', 'jiqizhixin'),
       'finance-world': pickKnown('techcrunch', 'bbc-business', 'gnews-business', 'stratechery'),
-      'intl-world': pickKnown(
-        'bloomberg-opinion',
-        'project-syndicate',
-        'scmp-china',
-        'sinocism',
-      ),
+      'intl-world': pickKnown('wsj-world', 'nikkei-asia', 'scmp-china', 'channelnewsasia-world'),
+      'intl-depth-world': pickKnown('bloomberg-opinion', 'project-syndicate', 'sinocism'),
       'ai-media-world': pickKnown('venturebeat-ai', 'mittr-ai'),
     }
     const visible: CategoryId[] = [
@@ -470,6 +467,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
       'ai-media',
       'finance-world',
       'intl-world',
+      'intl-depth-world',
       'ai-media-world',
     ]
     return builtinPreset(
@@ -487,21 +485,40 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
   })(),
   (() => {
     const categorySources = {
-      intl: pickKnown('theinitium', 'bbc-zh', 'dw-top', 'bbc-zh-world', 'bbc-zh-china'),
+      intl: pickKnown(
+        'bbc-zh',
+        'nytimes-zh',
+        'rfi-zh',
+        'dw-top',
+        'ftchinese',
+        'zaobao-world',
+        'voa-zh',
+        'cna-intl-zh',
+        'theinitium',
+      ),
       hot: pickKnown('netease'),
       science: pickKnown('huanqiukexue', 'pansci', 'guokr', 'zhishifenzi'),
       'intl-world': pickKnown(
         'bbc-world',
+        'dw-en',
+        'nytimes-world',
+        'wsj-world',
+        'nikkei-asia',
+        'channelnewsasia-world',
+        'scmp-china',
+        'scmp-news',
         'npr',
         'guardian-world',
         'france24',
         'aljazeera',
-        'scmp-china',
-        'scmp-news',
+        'gnews-world',
+      ),
+      'intl-depth-world': pickKnown(
         'foreign-affairs',
         'nyrb',
+        'bloomberg-opinion',
+        'project-syndicate',
         'sinocism',
-        'gnews-world',
       ),
       'tech-depth-world': pickKnown('quanta', 'mittr', 'wired', 'arstechnica', 'verge'),
       'science-world': pickKnown('gnews-science'),
@@ -511,6 +528,7 @@ export const BUILTIN_PRESETS: readonly LayoutPreset[] = [
       'hot',
       'science',
       'intl-world',
+      'intl-depth-world',
       'tech-depth-world',
       'science-world',
     ]
