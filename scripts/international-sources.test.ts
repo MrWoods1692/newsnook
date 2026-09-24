@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { parseSourcePayload } from '../src/lib/parseFeed'
+import { cachedListMatchesSourceVersion, type CachedList } from '../src/lib/storage'
 import { CATEGORIES, uncoveredSourceIds } from '../src/sources/categories'
 import { normalizeSnapshot } from '../src/sources/presets'
 import { normalizePreferences } from '../src/sources/preferences/normalize'
@@ -55,7 +56,10 @@ const migratedPrefs = normalizePreferences({
   categorySources: { intl: ['bbc-zh-world', 'bbc-zh-china', 'bbc-zh'] },
   favoriteSourceIds: ['bbc-zh-world', 'bbc-zh'],
 })
-assert.deepEqual(migratedPrefs.categorySources.intl, ['bbc-zh'])
+assert.deepEqual(
+  migratedPrefs.customCategories?.find((category) => category.id === 'legacy-v1-intl')?.sourceIds,
+  ['bbc-zh'],
+)
 assert.deepEqual(migratedPrefs.favoriteSourceIds, ['bbc-zh'])
 
 const migratedSnapshot = normalizeSnapshot({
@@ -66,9 +70,84 @@ const migratedSnapshot = normalizeSnapshot({
   enabledSourceIds: ['bbc-zh-world'],
   favoriteSourceIds: ['bbc-zh-china'],
 })
-assert.deepEqual(migratedSnapshot.categorySources.intl, ['bbc-zh'])
+assert.deepEqual(
+  migratedSnapshot.customCategories.find((category) => category.id === 'legacy-v1-intl')?.sourceIds,
+  ['bbc-zh'],
+)
 assert.deepEqual(migratedSnapshot.enabledSourceIds, ['bbc-zh'])
 assert.deepEqual(migratedSnapshot.favoriteSourceIds, ['bbc-zh'])
+
+const bbcZh = findSource('bbc-zh')!
+assert.equal(bbcZh.kind, 'bbc-chinese')
+assert.equal(bbcZh.url, 'https://www.bbc.com/zhongwen/simp')
+assert.equal(bbcZh.siteUrl, 'https://www.bbc.com/zhongwen/simp')
+assert.equal(bbcZh.cacheVersion, 'simp-v1')
+assert.ok(!bbcZh.url.includes('/trad'), 'BBC 中文 must never point at the traditional RSS feed')
+
+const bbcNextPayload = {
+  props: {
+    pageProps: {
+      pageData: {
+        curations: [
+          {
+            summaries: [
+              {
+                type: 'article',
+                title: '习近平访美焦点：贸易、AI、台湾与伊朗',
+                description: '美国与中国正围绕贸易与人工智能展开新一轮交锋。',
+                firstPublished: '2026-09-23T23:30:08.153Z',
+                link: 'https://www.bbc.com/zhongwen/articles/example123/simp',
+                imageUrl: 'https://ichef.bbci.co.uk/ace/ws/{width}/cpsprodpb/example.jpg.webp',
+              },
+              {
+                type: 'article',
+                title: '习近平访美焦点：贸易、AI、台湾与伊朗',
+                description: '重复卡片应按文章 id 去重。',
+                firstPublished: '2026-09-23T23:30:08.153Z',
+                link: 'https://www.bbc.com/zhongwen/articles/example123/simp',
+                imageUrl: 'https://ichef.bbci.co.uk/ace/ws/{width}/cpsprodpb/example.jpg.webp',
+              },
+              {
+                type: 'article',
+                title: '繁體頁不應進入簡體來源',
+                link: 'https://www.bbc.com/zhongwen/articles/example-trad/trad',
+              },
+              {
+                type: 'video',
+                title: '视频卡片不进入新闻列表',
+                link: 'https://www.bbc.com/zhongwen/videos/example/simp',
+              },
+            ],
+          },
+        ],
+      },
+    },
+  },
+}
+const bbcParsed = parseSourcePayload(
+  bbcZh,
+  `<script type="application/json" id="__NEXT_DATA__">${JSON.stringify(bbcNextPayload)}</script>`,
+)
+assert.equal(bbcParsed.length, 1)
+assert.equal(bbcParsed[0].title, '习近平访美焦点：贸易、AI、台湾与伊朗')
+assert.equal(bbcParsed[0].summary, '美国与中国正围绕贸易与人工智能展开新一轮交锋。')
+assert.equal(bbcParsed[0].originUrl, 'https://www.bbc.com/zhongwen/articles/example123/simp')
+assert.equal(bbcParsed[0].image, 'https://ichef.bbci.co.uk/ace/ws/976/cpsprodpb/example.jpg.webp')
+assert.equal(new Date(bbcParsed[0].publishedAt).toISOString(), '2026-09-23T23:30:08.153Z')
+assert.ok(!/[習訪臺與國]/.test(bbcParsed[0].title), 'fixture should remain simplified Chinese')
+
+const legacyBbcCache = {
+  items: [],
+  cachedAt: Date.now(),
+  paging: undefined,
+} satisfies CachedList
+const simpBbcCache = {
+  items: [],
+  cachedAt: Date.now(),
+  paging: { sourceVersion: 'simp-v1' },
+} satisfies CachedList
+assert.equal(cachedListMatchesSourceVersion(legacyBbcCache, bbcZh.cacheVersion), false)
+assert.equal(cachedListMatchesSourceVersion(simpBbcCache, bbcZh.cacheVersion), true)
 
 const dwZh = findSource('dw-top')!
 assert.equal(dwZh.kind, 'feed')
@@ -80,21 +159,46 @@ for (const id of ['nytimes-zh', 'rfi-zh', 'ftchinese', 'voa-zh', 'cna-intl-zh'] 
 }
 assert.equal(findSource('zaobao-world')!.kind, 'zaobao', 'Zaobao has no usable first-party RSS and needs its first-party HTML adapter')
 
-const intlZh = CATEGORIES.find((category) => category.id === 'intl')!
-const intlEn = CATEGORIES.find((category) => category.id === 'intl-world')!
-const intlDepth = CATEGORIES.find((category) => category.id === 'intl-depth-world')!
+const worldZh = CATEGORIES.find((category) => category.id === 'world-zh')!
+const worldZhPress = CATEGORIES.find((category) => category.id === 'world-zh-press')!
+const worldNews = CATEGORIES.find((category) => category.id === 'world-news')!
+const worldNewsPress = CATEGORIES.find((category) => category.id === 'world-news-press')!
+const worldAsia = CATEGORIES.find((category) => category.id === 'world-asia')!
+const worldOpinion = CATEGORIES.find((category) => category.id === 'world-opinion')!
+const chinaExternal = CATEGORIES.find((category) => category.id === 'cn-external')!
+const bizGlobal = CATEGORIES.find((category) => category.id === 'biz-global')!
+const bizIndustry = CATEGORIES.find((category) => category.id === 'biz-industry')!
+const depthKnowledge = CATEGORIES.find((category) => category.id === 'depth-knowledge')!
 
-assert.equal(intlZh.label, '国际中文')
-assert.equal(intlEn.label, '国际英文')
-assert.equal(intlDepth.label, '国际英文·深读')
+assert.equal(worldZh.label, '中文公共媒体')
+assert.equal(worldZhPress.label, '中文报刊通讯')
+assert.equal(worldNews.label, '英文公共媒体')
+assert.equal(worldNewsPress.label, '英文报刊聚合')
+assert.equal(worldAsia.label, '亚太观察')
+assert.equal(worldOpinion.label, '国际评论')
 
-for (const id of chineseIds) assert.ok(intlZh.sourceIds?.includes(id), `${id} must be in 国际中文`)
-for (const id of englishNewsIds) assert.ok(intlEn.sourceIds?.includes(id), `${id} must be in 国际英文`)
-for (const id of englishDepthIds) assert.ok(intlDepth.sourceIds?.includes(id), `${id} must be in 国际英文·深读`)
-
-assert.ok(!intlZh.sourceIds?.includes('scmp-china'), 'SCMP China is an English China beat, not a Chinese-language source')
-assert.ok(!intlEn.sourceIds?.includes('foreign-affairs'), 'general English news must not mix with commentary/think tanks')
-assert.ok(!intlDepth.sourceIds?.includes('bbc-world'), 'deep-reading rail must not mix with general news')
+for (const id of ['bbc-zh', 'rfi-zh', 'dw-top', 'voa-zh']) {
+  assert.ok(worldZh.sourceIds?.includes(id), `${id} must be in 中文公共媒体`)
+}
+for (const id of ['nytimes-zh', 'cna-intl-zh', 'zaobao-world', 'theinitium']) {
+  assert.ok(worldZhPress.sourceIds?.includes(id), `${id} must be in 中文报刊通讯`)
+}
+assert.ok(bizGlobal.sourceIds?.includes('ftchinese'))
+for (const id of ['bbc-world', 'dw-en', 'npr', 'france24', 'aljazeera']) {
+  assert.ok(worldNews.sourceIds?.includes(id), `${id} must be in 英文公共媒体`)
+}
+for (const id of ['nytimes-world', 'wsj-world', 'guardian-world', 'gnews-world']) {
+  assert.ok(worldNewsPress.sourceIds?.includes(id), `${id} must be in 英文报刊聚合`)
+}
+for (const id of ['nikkei-asia', 'channelnewsasia-world', 'scmp-news']) {
+  assert.ok(worldAsia.sourceIds?.includes(id), `${id} must be in 亚太观察`)
+}
+assert.ok(chinaExternal.sourceIds?.includes('scmp-china'))
+assert.ok(chinaExternal.sourceIds?.includes('sinocism'))
+assert.ok(worldOpinion.sourceIds?.includes('foreign-affairs'))
+assert.ok(worldOpinion.sourceIds?.includes('project-syndicate'))
+assert.ok(depthKnowledge.sourceIds?.includes('nyrb'))
+assert.ok(bizIndustry.sourceIds?.includes('bloomberg-opinion'))
 assert.deepEqual(uncoveredSourceIds(), [], 'all built-in sources must remain assigned to a category')
 
 const zaobao = findSource('zaobao-world')!

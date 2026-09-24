@@ -18,9 +18,10 @@ import { DEFAULT_PROXY_PREFS } from '../../features/proxy/config'
 import type { ProxyPrefs } from '../../features/proxy/types'
 import {
   CATEGORIES,
+  CATEGORY_TAXONOMY_VERSION,
+  DEFAULT_PRESET_CATEGORY_IDS,
+  DEFAULT_PRESET_CATEGORY_SOURCES,
   FAVORITES_CATEGORY_ID,
-  PORTAL_CATEGORY_SOURCES,
-  PORTAL_VISIBLE_CATEGORY_IDS,
   RECOMMEND_CATEGORY_ID,
   type CategoryId,
   type NewsCategory,
@@ -75,6 +76,8 @@ export function normalizePrestorePrefs(raw: unknown): PrestorePrefs {
 }
 
 export interface Preferences {
+  /** 内置分类体系版本；用于把旧内置布局一次性物化为用户自定义布局。 */
+  categoryTaxonomyVersion: number
   /** 分类展示顺序；未列出的分类按注册表顺序排在后面 */
   categoryOrder: CategoryId[]
   hiddenCategoryIds: CategoryId[]
@@ -125,22 +128,18 @@ export const DEFAULT_TYPOGRAPHY: TypographyPrefs = {
   firstLineIndent: true,
 }
 
-const PORTAL_VISIBLE = new Set<string>(PORTAL_VISIBLE_CATEGORY_IDS)
+const DEFAULT_VISIBLE = new Set<string>(DEFAULT_PRESET_CATEGORY_IDS)
 
-/**
- * 门户经典默认栏之外的分类；新装 / 重置布局时隐藏。
- * 由 CATEGORIES 减去 PORTAL_VISIBLE_CATEGORY_IDS 派生，避免漏掉新 id。
- * 可见轨：热点 / 独家 / 中文主题栏 / 轻松 / 对应外刊栏；综合默认隐藏。
- * AI、游戏、深度与冷门细分留给场景预设或分类管理。
- */
+/** 新装默认使用「中国资讯」预设；其它内置分类保持隐藏。 */
 export const DEFAULT_HIDDEN_CATEGORY_IDS: CategoryId[] = CATEGORIES.map(
   (category) => category.id,
-).filter((id) => !PORTAL_VISIBLE.has(id))
+).filter((id) => !DEFAULT_VISIBLE.has(id))
 
 export const DEFAULT_PREFERENCES: Preferences = {
-  categoryOrder: [...PORTAL_VISIBLE_CATEGORY_IDS],
+  categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
+  categoryOrder: [...DEFAULT_PRESET_CATEGORY_IDS],
   hiddenCategoryIds: [...DEFAULT_HIDDEN_CATEGORY_IDS],
-  categorySources: { ...PORTAL_CATEGORY_SOURCES },
+  categorySources: { ...DEFAULT_PRESET_CATEGORY_SOURCES },
   categoryNames: {},
   favoriteSourceIds: [],
   customCategories: [],

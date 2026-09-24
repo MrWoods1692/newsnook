@@ -6,7 +6,7 @@
 
 | 媒体 | 探测结果 | Newsnook 接入决策 |
 |---|---|---|
-| BBC 中文 | 第一方 RSS：`https://feeds.bbci.co.uk/zhongwen/trad/rss.xml`；当前为繁体 | `feed`；保留 `bbc-zh`。删除与它完全同源的 `bbc-zh-china` / `bbc-zh-world` 别名 |
+| BBC 中文 | BBC 官方简体首页 `https://www.bbc.com/zhongwen/simp` 正常提供 `zh-hans` 内容；但公开 `feeds.bbci.co.uk/zhongwen/simp/rss.xml` 会 301 到繁体 `trad/rss.xml` | 不再使用 RSS；`bbc-chinese` 解析第一方 `__NEXT_DATA__`，只接受 `/simp` 正文链接，并以 `cacheVersion=simp-v1` 淘汰升级前的繁体缓存 |
 | 纽约时报中文网 | 第一方 RSS：`https://cn.nytimes.com/rss/`，实测 200 且持续更新 | `feed`：`nytimes-zh` |
 | 华尔街日报中文网 | 站点仍存在，但当前直接请求返回访问控制；旧中文 RSS 地址不可用，未发现稳定第一方公开 RSS | 不使用第三方镜像；暂不内置。若以后接入，应做浏览器会话 / 授权感知的自定义源，并尊重订阅墙 |
 | RFI 中文 | 第一方 RSS：`https://www.rfi.fr/cn/rss`，实测 200 / `application/rss+xml` | `feed`：`rfi-zh` |
@@ -27,12 +27,13 @@
 
 - 第一方 RSS：BBC World、DW English、NYT World、WSJ World News、Nikkei Asia、Channel NewsAsia World、SCMP、NPR、Guardian World、France 24、Al Jazeera。
 - Google News World 保留为聚合补充，但不是核心第一方媒体。
-- Foreign Affairs、New York Review of Books、Bloomberg Opinion、Project Syndicate、Sinocism 移到独立“国际英文·深读”。
+- taxonomy v3 不再把所有英文长文塞进一个“国际深读”：Foreign Affairs / Project Syndicate →「全球视野·国际评论」，NYRB →「深度人文·海外思想长文」，Bloomberg Opinion →「财经商业·产业评论」，Sinocism →「中国资讯·外部观察」。
 
-## 结构约束
+## 结构约束（taxonomy v3）
 
-1. 保留分类 ID `intl` / `intl-world`，只改显示语义为“国际中文” / “国际英文”，避免破坏已有用户布局。
-2. 新增 `intl-depth-world` 承担英文评论/智库。
-3. `group: 'intl'` 继续用于网络代理策略；语言由分类决定，禁止再把 `group` 当 locale。
-4. 同一真实 Feed 不允许用多个 source ID 伪装成不同栏目。
-5. 优先第一方 RSS/Atom；没有第一方 feed 时才做站点自定义解析；不把 RSSHub/FeedX 等第三方镜像设为内置默认依赖。
+1. 国际新闻按语言与媒体形态进入 `world-zh`（中文公共媒体）、`world-zh-press`（中文报刊通讯）、`world-news`（英文公共媒体）、`world-news-press`（英文报刊聚合）、`world-asia`（亚太观察）、`world-opinion`（国际评论），不再维护旧 `intl*` 分类。
+2. 内置 taxonomy 全局互斥：同一个普通内置信源只属于一个预设、一个分类；知乎社区工作区 `workspaceOnly` 不进入预设。
+3. `group: 'intl'` 继续只承担网络代理/路由属性，不表达语言和 UI 分类。
+4. 同一真实 Feed 不允许用多个 source ID 伪装成不同栏目；父/子 Feed 也不得在同一预设里制造明显重复。
+5. 优先第一方 RSS/Atom；没有第一方 feed 时才做站点自定义解析；不把 RSSHub/FeedX 等第三方镜像设为内置硬依赖。
+6. 旧用户布局通过 taxonomy migration 物化为自定义分类/预设，不按新分类猜测重排。

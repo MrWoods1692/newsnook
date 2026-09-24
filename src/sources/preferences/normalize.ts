@@ -14,8 +14,9 @@ import { normalizeReadAloudPrefs } from '../../features/readAloud/config'
 import { normalizeProxyPrefs } from '../../features/proxy/config'
 import {
   CATEGORIES,
+  CATEGORY_TAXONOMY_VERSION,
+  DEFAULT_PRESET_CATEGORY_SOURCES,
   isReservedCategoryLabel,
-  PORTAL_CATEGORY_SOURCES,
   type CategoryId,
   type NewsCategory,
 } from '../categories'
@@ -41,6 +42,7 @@ import {
   type TypographyPrefs,
 } from './model'
 import { describeSources } from './categoryPrefs'
+import { migrateLegacyCategoryLayout } from '../taxonomyMigration'
 
 function uniqueValidSourceIds(raw: unknown, knownSourceIds: Set<string>): string[] {
   if (!Array.isArray(raw)) return []
@@ -54,7 +56,8 @@ function uniqueValidSourceIds(raw: unknown, knownSourceIds: Set<string>): string
 /** 读入持久化数据时剔除已下线的分类与信源，避免脏配置导致空列表 */
 export function normalizePreferences(raw: unknown): Preferences {
   const isFreshInstall = raw == null
-  const input = (raw ?? {}) as Partial<Preferences>
+  const migrated = isFreshInstall ? (raw ?? {}) : migrateLegacyCategoryLayout(raw).value
+  const input = migrated as Partial<Preferences>
   const typography = (input.typography ?? {}) as Partial<TypographyPrefs>
 
   // 1. 规范化自建订阅源列表
@@ -134,7 +137,7 @@ export function normalizePreferences(raw: unknown): Preferences {
 
   const categorySources: Record<CategoryId, string[]> = {}
   if (input.categorySources == null) {
-    Object.assign(categorySources, PORTAL_CATEGORY_SOURCES)
+    Object.assign(categorySources, DEFAULT_PRESET_CATEGORY_SOURCES)
   } else {
     Object.entries(input.categorySources).forEach(([categoryId, sourceIds]) => {
       if (!allCategoryIds.has(categoryId) || isAggregateCategoryId(categoryId)) return
@@ -160,7 +163,7 @@ export function normalizePreferences(raw: unknown): Preferences {
     })
   }
 
-  // 缺省键 → 门户经典默认隐藏；显式 [] 表示用户/旧数据「全部显示」，不强制迁移
+  // 缺省键 → 当前 taxonomy 默认预设隐藏策略；显式 [] 表示当前布局选择「全部显示」。
   const hidden = Array.isArray(input.hiddenCategoryIds)
     ? uniqueValid(input.hiddenCategoryIds, allCategoryIds)
     : [...DEFAULT_HIDDEN_CATEGORY_IDS]
@@ -179,6 +182,7 @@ export function normalizePreferences(raw: unknown): Preferences {
   }
 
   return {
+    categoryTaxonomyVersion: CATEGORY_TAXONOMY_VERSION,
     categoryOrder,
     // 至少保留一个可见分类，否则首页无内容可选
     hiddenCategoryIds: hidden.length >= allCategoryIds.size ? hidden.slice(1) : hidden,

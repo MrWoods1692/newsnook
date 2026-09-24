@@ -345,8 +345,19 @@ export const SOURCES: NewsSource[] = [
   },
 
   // —— 国际中文 ——
-  // 只登记仍可直接探测的第一方 feed；BBC 旧 china/world alias 指向同一总 feed，已移除避免重复。
-  { id: 'bbc-zh', name: 'BBC 中文', label: 'BBC中文', group: 'intl', kind: 'feed', url: 'https://feeds.bbci.co.uk/zhongwen/trad/rss.xml', enabled: true },
+  // BBC 官方 simp 首页仍提供简体中文，但公开 RSS 的 simp 地址会 301 到繁体 feed；
+  // 因此直接解析第一方简体首页的 Next.js 数据，避免把繁体内容误标为「BBC 中文」。
+  {
+    id: 'bbc-zh',
+    name: 'BBC 中文',
+    label: 'BBC中文',
+    group: 'intl',
+    kind: 'bbc-chinese',
+    url: 'https://www.bbc.com/zhongwen/simp',
+    siteUrl: 'https://www.bbc.com/zhongwen/simp',
+    cacheVersion: 'simp-v1',
+    enabled: true,
+  },
   { id: 'nytimes-zh', name: '纽约时报中文网', label: '纽约时报中文', group: 'intl', kind: 'feed', url: 'https://cn.nytimes.com/rss/', enabled: false },
   { id: 'rfi-zh', name: '法国国际广播电台中文', label: 'RFI中文', group: 'intl', kind: 'feed', url: 'https://www.rfi.fr/cn/rss', enabled: false },
   { id: 'dw-top', name: 'DW 中文', label: 'DW中文', group: 'intl', kind: 'feed', url: 'https://rss.dw.com/rdf/rss-chi-all', enabled: true },
