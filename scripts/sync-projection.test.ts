@@ -215,10 +215,10 @@ function recordsFromProjection(state: LocalRuntimeState): SyncRecord[] {
         isCustom: true,
       },
     ],
-    categoryOrder: ['tech', 'custom-cat', 'mix'],
-    hiddenCategoryIds: ['game'],
-    categorySources: { tech: ['custom:example'] },
-    categoryNames: { tech: { label: '数码前沿', short: '数码' } },
+    categoryOrder: ['tech-digital', 'custom-cat', 'mix'],
+    hiddenCategoryIds: ['life-games'],
+    categorySources: { 'tech-digital': ['custom:example'] },
+    categoryNames: { 'tech-digital': { label: '数码前沿', short: '数码' } },
     theme: 'dark',
     typography: { ...local.prefs.typography, fontScale: 1.1 },
   })
@@ -244,13 +244,13 @@ function recordsFromProjection(state: LocalRuntimeState): SyncRecord[] {
   assert.deepEqual(category.sourceIds, ['custom:example'])
 
   assert.ok(restored.enabledIds.includes('custom:example'))
-  assert.deepEqual(restored.prefs.categorySources.tech, ['custom:example'])
-  assert.deepEqual(restored.prefs.categoryNames.tech, {
+  assert.deepEqual(restored.prefs.categorySources['tech-digital'], ['custom:example'])
+  assert.deepEqual(restored.prefs.categoryNames['tech-digital'], {
     label: '数码前沿',
     short: '数码',
   })
-  assert.ok(restored.prefs.hiddenCategoryIds.includes('game'))
-  assert.equal(restored.prefs.categoryOrder[0], 'tech')
+  assert.ok(restored.prefs.hiddenCategoryIds.includes('life-games'))
+  assert.equal(restored.prefs.categoryOrder[0], 'tech-digital')
   assert.equal(restored.prefs.categoryOrder[1], 'custom-cat')
 
   // 再投影一次应当收敛：往返不产生新的差异
@@ -259,6 +259,34 @@ function recordsFromProjection(state: LocalRuntimeState): SyncRecord[] {
   for (const key of Object.keys(before)) {
     assert.equal(after[key]?.fingerprint, before[key]?.fingerprint, `${key} 往返后指纹应一致`)
   }
+}
+
+{
+  // 旧 taxonomy 云端分类同步到 v2 客户端时，实际旧 category id 必须触发迁移，
+  // 不能因为本机已有 categoryTaxonomyVersion=2 就把旧布局静默丢掉。
+  const restored = applyRemoteRecords(baseState(), [
+    {
+      entityType: 'category',
+      entityId: 'tech',
+      revision: 100,
+      deleted: false,
+      updatedAt: 0,
+      payload: {
+        kind: 'builtin',
+        visible: true,
+        sortRank: '000001',
+        sourceIds: ['ithome', 'sspai'],
+        label: '我的科技',
+        short: '科技',
+      },
+    },
+  ])
+  const migrated = restored.prefs.customCategories?.find((entry) => entry.id === 'legacy-v1-tech')
+  assert.ok(migrated, 'old cloud category must be materialized as a custom category')
+  assert.equal(migrated.label, '我的科技')
+  assert.deepEqual(migrated.sourceIds, ['ithome', 'sspai'])
+  assert.ok(!restored.prefs.hiddenCategoryIds.includes('legacy-v1-tech'))
+  assert.ok(restored.prefs.hiddenCategoryIds.includes('cn-headlines'))
 }
 
 {
