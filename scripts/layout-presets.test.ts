@@ -171,7 +171,7 @@ for (const [left, right] of highOverlapPairs) {
   )
 }
 assert.equal(categoryForSource('zhihu-daily'), 'depth-books')
-assert.equal(CATEGORIES.find((category) => category.id === 'depth-books')?.label, '中文精选阅读')
+assert.equal(CATEGORIES.find((category) => category.id === 'depth-books')?.label, '中文精选')
 assert.equal(categoryForSource('swarma'), 'science-research')
 assert.equal(categoryForSource('netease-diqiu'), 'science-earth')
 assert.equal(categoryForSource('lil-log'), 'ai-engineering')
