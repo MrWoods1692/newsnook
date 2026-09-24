@@ -55,6 +55,33 @@ public class LinuxDoBrowserSessionRecoveryTest {
         assertEquals("cooldown", results.get(1).optString("reason"));
     }
 
+    @Test public void aReadyDocumentOnlyHandlesTheReadSyncEndpointsAndCancelsPendingRequests() throws Exception {
+        Activity activity = Robolectric.buildActivity(Activity.class).setup().get();
+        LinuxDoBrowserSessionRecovery recovery = new LinuxDoBrowserSessionRecovery();
+        List<JSObject> results = new ArrayList<>();
+        recovery.prepare(activity, results::add);
+        java.lang.reflect.Field prepared = LinuxDoBrowserSessionRecovery.class.getDeclaredField("prepared");
+        prepared.setAccessible(true);
+        JSObject identity = new JSObject();
+        identity.put("ready", true); identity.put("userId", 9); identity.put("username", "test-reader"); identity.put("csrf", "fixture-token");
+        prepared.set(recovery, identity);
+        assertTrue(recovery.canRequest("https://linux.do/topics/timings"));
+        assertTrue(recovery.canRequest("https://linux.do/session/csrf.json"));
+        assertFalse(recovery.canRequest("https://linux.do.evil.example/topics/timings"));
+        assertFalse(recovery.canRequest("https://linux.do/posts.json"));
+        assertFalse(recovery.canRequest("https://someone@linux.do/topics/timings"));
+        assertFalse(recovery.canRequest("https://linux.do/topics/timings?next=external"));
+        List<JSObject> responses = new ArrayList<>();
+        recovery.request("https://linux.do/topics/timings", "POST", new JSObject(), "", responses::add);
+        assertEquals(0, responses.size());
+        recovery.cancel();
+        assertEquals(1, responses.size());
+        assertTrue(responses.get(0).has("error"));
+        assertFalse(recovery.canRequest("https://linux.do/topics/timings"));
+        shadowOf(Looper.getMainLooper()).idleFor(180, TimeUnit.SECONDS);
+        assertEquals(1, responses.size());
+    }
+
     @Test public void missingActivityCannotStartARecovery() {
         LinuxDoBrowserSessionRecovery recovery = new LinuxDoBrowserSessionRecovery();
         List<JSObject> results = new ArrayList<>();

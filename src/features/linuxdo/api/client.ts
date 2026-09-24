@@ -52,7 +52,7 @@ function diagnostics(url: string, method: Method, status?: number, headers?: Rec
   return {
     stage: /^\/session\/csrf(?:\.json)?$/.test(path) ? 'csrf' : 'request',
     method, path, status,
-    transport: transport === 'browser' || transport === 'native' || transport === 'web' ? transport : 'unknown',
+    transport: transport === 'browser' || transport === 'browser-firstparty' || transport === 'native' || transport === 'web' ? transport : 'unknown',
     responsePath: responseUrl ? requestPath(responseUrl) : undefined,
     contentType: headerValue(headers, 'content-type').slice(0, 100) || undefined,
     cfMitigated: headerValue(headers, 'cf-mitigated').slice(0, 32) || undefined,
@@ -139,6 +139,14 @@ export class LinuxDoApiClient {
           recoveredBrowser = true
           const prepared = await prepareLinuxDoBrowserSession().catch(() => ({ ready: false } as const))
           this.requireCurrentSession(generation)
+          // SessionController.current returns an empty 404 when no user is logged in.
+          // This is specific to the confirmed first-party current-session probe;
+          // a 404 from an arbitrary content API is still an ordinary not-found.
+          if ('phase' in prepared && prepared.phase === 'session' && (prepared.status === 401 || prepared.status === 404)) {
+            throw new LinuxDoApiError('auth-required', 'Linux.do 浏览器会话已退出，请重新登录后补传阅读记录', prepared.status, undefined, {
+              stage: 'session', method: 'GET', path: '/session/current.json', status: prepared.status, transport: 'browser-firstparty',
+            })
+          }
           if (prepared.ready && 'csrf' in prepared && typeof prepared.csrf === 'string' && prepared.csrf) {
             const user = this.session.currentUser
             if (!user || !('username' in prepared) || !('userId' in prepared)

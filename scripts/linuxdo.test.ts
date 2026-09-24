@@ -1585,7 +1585,11 @@ assert.match(threadViewsSource, /rounded-xl sm:rounded-2xl border border-haze\/4
 assert.match(threadViewsSource, /setPosts\(\(current\) => current\.map\(\(post\) => acknowledged\.has\(post\.postNumber\) \? \{ \.\.\.post, read: true \} : post\)\)/)
 assert.match(threadViewsSource, /LinuxDO timings acknowledged/)
 assert.match(threadViewsSource, /transport: 'session-chain'/)
-assert.match(readFileSync('src/features/linuxdo/ui/ReadSyncStatus.tsx', 'utf8'), /阅读记录尚未同步/)
+assert.match(threadViewsSource, /setReadSyncFailure\(\{ error: nextError, batch, retrying \}\)/)
+const readSyncStatusSource = readFileSync('src/features/linuxdo/ui/ReadSyncStatus.tsx', 'utf8')
+assert.match(readSyncStatusSource, /data-linuxdo-read-sync/)
+assert.match(readSyncStatusSource, /阅读记录尚未同步/)
+assert.match(readSyncStatusSource, /复制诊断/)
 
 const userWithCdnAvatar = decodeCurrentUser({
   current_user: {

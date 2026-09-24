@@ -172,11 +172,11 @@ export type LinuxDoErrorKind =
   | 'unknown'
 
 export interface LinuxDoRequestDiagnostics {
-  stage: 'csrf' | 'request'
+  stage: 'csrf' | 'request' | 'session'
   method: string
   path: string
   status?: number
-  transport?: 'native' | 'browser' | 'web' | 'unknown'
+  transport?: 'native' | 'browser' | 'browser-firstparty' | 'web' | 'unknown'
   responsePath?: string
   contentType?: string
   cfMitigated?: string

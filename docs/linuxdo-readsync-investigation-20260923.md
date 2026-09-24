@@ -1,8 +1,8 @@
-# LinuxDO read-sync investigation: readsync-20260923-r2
+# LinuxDO read-sync investigation: readsync-20260923-r3-firstparty
 
 ## Scope and provenance
 
-Base commit: `4a8fe9d` on `beta`. Work performed in the existing isolated `newsnook-build-readsync` worktree. Unrelated TTS, video, and search modifications in the main workspace are excluded.
+Base commit: `4a8fe9d` on `beta`. The earlier recovery work landed as `a84c7f7`; this r3 audit and its additional corrections were verified in the independent `newsnook-readsync-proof` worktree without overwriting concurrent work. Unrelated TTS, video, and search modifications in the main workspace are excluded.
 
 The previously supplied signed cloud APK contained the `session-chain` change from `4a8fe9d`. Its failure was not explained by accidentally sending the earlier browserOnly build.
 
@@ -31,37 +31,48 @@ The real React TopicView test also established that the prior acknowledgement ca
 - Observe only real post article elements, not quoted post-reference nodes.
 - Add LinuxDO behavior tests to the Android release workflow.
 
-## Verification evidence
+## Runtime evidence collected in the independent proof worktree
 
-- `npm run test:linuxdo`: existing LinuxDO suite and 31 new JavaScript cases passed.
-  - Real API client and topic service, mocking only the native network boundary: 11 passed.
-  - Timing queue and lifecycle: 6 passed.
-  - Exact Android-injected session probe script executed in a controlled JS context: 9 passed.
-  - Real React TopicView/AccountView rendering, including blue-dot removal, preserved failure, phase display, and verification/resume: 5 passed.
-- Native `LinuxDoCookieCommitTest`: 4 passed.
-- Native `LinuxDoBrowserSessionRecoveryTest`: 4 passed on Robolectric Android 13.
-- Initial native recovery runs failed to initialize because the additional Robolectric Android 15 compile-time runtime was missing. The exact runtime was subsequently fetched from Maven Central, SHA-256 verified, and the eight focused native tests passed. Full unrelated Android test-suite completion is not claimed.
-- Release/update isolation, Chrome/WebView compatibility, hardware-back, control selection, React innerHTML stability, and project Cloudflare routing regressions passed.
-- TypeScript/Vite production build passed. Existing bundle-size warnings remain.
-- Lint: no errors, 18 pre-existing project warnings; no new read-sync warnings.
-- Local cloud release APK built successfully and APK v2 signature verified.
+The Pixel_10_Pro emulator is now online. Its system images live under `D:/Android/Sdk`; the previous failed launches used a different SDK root. No emulator data or account was wiped.
 
-## Artifact
+The earlier local signed APK was inspected: its embedded capacitor config has no remote server URL, its LinuxDO bundle contains `session-chain`, and it does not force `browserOnly`. APK SHA-256: `43b3737b35d04f1c224bdc52fa10f2daaeafb390f294ac73f4b956f03b02e01c`. This rules out sending the older browser-only frontend.
 
-Private test build, not a new public release. Package version remains `1.8.9-beta.3`, Android version code `10809003`.
+An independently built DEBUG APK pinned to `4a8fe9d` was installed over the emulator's existing debug app, preserving data. Runtime probes through the actual Capacitor native bridge returned:
 
-Build marker: `readsync-20260923-r2`.
+| Request | Result |
+| --- | --- |
+| GET /latest.json?page=0 | 200 JSON, 30 topics |
+| GET /session/csrf.json | 200 JSON, token present |
+| POST /topics/timings | 403 HTML, cf-mitigated=challenge |
 
-APK bytes: `3606434`.
+The emulator is not authenticated. The diagnostic POST used an empty body, without topic IDs or fabricated reading durations, so no reading statistics were created. A request from a real first-party Linux.do document reached Discourse and returned the JSON login-required response rather than the Cloudflare challenge. After ordinary first-party initialization, the synthetic browser transport also reached that authentication gate. This is evidence of distinct request/browser initialization behavior, not proof of the exact private WAF rule.
 
-APK SHA-256: `d609ea4b9f7e6d3d36367c83f79f917ddc05aa65e8338340081da6f125baa870`.
+The fresh recovery implementation was executed on the emulator. It visited the actual first-party page and returned `ready=false`, `phase=session`, `status=404`, without a CSRF token or a claimed successful session. Discourse SessionController.current explicitly returns empty 404 for an anonymous user; this now appears as login-required rather than another opaque Cloudflare error.
 
-Signing certificate SHA-256: `94d835734e822dceb874b60f1caa13046a6116fd105d5fb97eda78790f7698b2`.
+## Additional r3 correction
 
-The APK was inspected to confirm the new build marker and exact session-probe asset. Production source timestamps predate the APK.
+The prepared first-party document is retained for a bounded idle period. The retried CSRF/timings requests execute inside that same document; the app no longer obtains a token there and immediately destroys it before retrying in a synthetic blank document. No JavaScriptInterface is exposed to the remote page. The in-document request asset restricts destination, method, credentials, redirects, response size and timeout. Other arbitrary APIs and cross-origin redirects are rejected. Logout/destruction cancels pending work.
 
-## What remains unverified
+Diagnostics distinguish `native`, `browser` and `browser-firstparty`; the copied build marker is `readsync-20260923-r3-firstparty`.
 
-No Android device is connected to the local ADB server. The existing Pixel emulator cannot boot because its configured Android system image is missing. Consequently, this investigation has not captured the user's actual authenticated Cloudflare response or demonstrated their server-side posts_read_count increasing on a physical device.
+## Verification
 
-A successful automated test or build does not establish which Linux.do WAF rule rejected the user's phone. If that server still requests an interactive challenge, the new persistent diagnostic distinguishes GET /session/csrf.json from POST /topics/timings and records the actual native/browser hop. It must not be described as a guaranteed bypass or a verified device-level fix.
+Tests execute the real TypeScript API client/service and React views; only the native/network boundary is substituted in those automated cases. The injected JavaScript assets are executed as code, not checked only with source regexes.
+
+- Transport/authentication: 13 cases, including explicit BAD CSRF, challenged CSRF preflight, POST challenge, permission failures, single-flight CSRF, account switching, rejected login HTML, bounded recovery, first-party hop diagnostics and the anonymous-current-session 404 contract.
+- Timing queue: 6 cases, including retained security failures, network retry, Retry-After, teardown and stale callbacks.
+- Real React TopicView/AccountView: 5 cases, including ACK removing both dots, failed POST preserving them, same-account recovery/resume and a failed GET before any POST.
+- Session probe asset: 9 cases.
+- First-party request asset: 6 cases.
+- Native CookieManager ordering: 4 cases.
+- Native browser recovery: 5 cases.
+
+The baseline failed eight original transport cases and all six queue cases. Its real React ACK path already cleared blue dots, so the visual component alone was not the cause of the reported HTTP failure.
+
+The existing LinuxDO suite, release/update contract, Cloudflare routing, WebView runtime/CSS compatibility, Android hardware back, logger, lint and production build are included in the verification commands. Expected test-fixture error logs and existing project build/lint warnings must not be described as new production failures. Detailed local command output is under the ignored `evidence/readsync/` directory of `newsnook-readsync-proof`.
+
+## Delivery boundary
+
+Package version remains `1.8.9-beta.3`; this investigation does not publish or retag a GitHub release. Any new local APK must be given an r3-specific filename and have its embedded marker, signature and file hash checked after building. Previous r2 artifacts are not evidence of the r3 source.
+
+The user's authenticated phone request and the server-side posts_read_count increment remain unverified until a logged-in test session is available. The emulator is online but not logged in. Do not report a completed authenticated end-to-end fix based only on these successful builds and controlled tests. Genuine interactive challenges must remain explicit and user-completed.

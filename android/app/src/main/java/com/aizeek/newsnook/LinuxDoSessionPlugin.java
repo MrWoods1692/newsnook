@@ -118,12 +118,18 @@ public class LinuxDoSessionPlugin extends Plugin {
         final String data;
         final JSObject headers;
         final String responseUrl;
+        final String transport;
 
         BrowserFetchResponse(int status, String data, JSObject headers, String responseUrl) {
+            this(status, data, headers, responseUrl, "browser");
+        }
+
+        BrowserFetchResponse(int status, String data, JSObject headers, String responseUrl, String transport) {
             this.status = status;
             this.data = data;
             this.headers = headers;
             this.responseUrl = responseUrl;
+            this.transport = transport;
         }
     }
 
@@ -659,7 +665,7 @@ public class LinuxDoSessionPlugin extends Plugin {
         result.put("status", response.status);
         result.put("data", response.data);
         result.put("headers", response.headers);
-        result.put("transport", "browser");
+        result.put("transport", response.transport);
         result.put("responseUrl", response.responseUrl);
         call.resolve(result);
     }
@@ -724,6 +730,30 @@ public class LinuxDoSessionPlugin extends Plugin {
     ) {
         if (!isApiAllowedUrl(url)) {
             callback.onFailure("浏览器传输仅允许 linux.do 主站");
+            return;
+        }
+
+        if (browserSessionRecovery.canRequest(url)) {
+            // Keep the token and the retried write in the actual first-party
+            // document that completed session preparation. Do not switch it back
+            // into a synthetic blank document after obtaining a usable CSRF.
+            browserSessionRecovery.request(url, method, browserSafeRequestHeaders(requestHeaders), body, result -> {
+                if (result.has("error")) {
+                    callback.onFailure(result.optString("error", "Linux.do 浏览器请求失败"));
+                    return;
+                }
+                JSObject headers = new JSObject();
+                JSONObject received = result.optJSONObject("headers");
+                if (received != null) {
+                    java.util.Iterator<String> keys = received.keys();
+                    while (keys.hasNext()) {
+                        String key = keys.next();
+                        if (!"set-cookie".equalsIgnoreCase(key) && !"set-cookie2".equalsIgnoreCase(key)) headers.put(key, received.optString(key, ""));
+                    }
+                }
+                callback.onSuccess(new BrowserFetchResponse(result.optInt("status", 0), result.optString("data", ""), headers,
+                    safeResponseUrl(result.optString("responseUrl", "")), "browser-firstparty"));
+            });
             return;
         }
 
@@ -1660,7 +1690,10 @@ public class LinuxDoSessionPlugin extends Plugin {
         boolean userApiExchange = call == pendingUserApiCall;
         LinuxDoUserApiAuth.Credential credential = pendingOtpCredential;
         if (user != null) cacheSessionUser(user);
-        if (finishDialog && user != null) preferBrowserTransport = true;
+        if (finishDialog && user != null) {
+            browserSessionRecovery.cancel();
+            preferBrowserTransport = true;
+        }
         if (userApiExchange && user == null) {
             pendingUserApiCall = null;
             pendingOtpCredential = null;

@@ -6,7 +6,7 @@ export interface LinuxDoNativeResponse {
   status: number
   data: string
   headers?: Record<string, string>
-  transport?: 'native' | 'browser'
+  transport?: 'native' | 'browser' | 'browser-firstparty'
   responseUrl?: string
 }
 
@@ -16,6 +16,8 @@ export interface LinuxDoBrowserPreparation {
   userId?: number
   csrf?: string
   reason?: string
+  phase?: 'session' | 'csrf'
+  status?: number
 }
 
 interface LinuxDoSessionPlugin {
